@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import {
+  APP_VERSION,
   QualityBudget,
   SceneId,
   ScreensaverSettings,
@@ -26,12 +27,12 @@ const LOGICAL_W = 960;
 const LOGICAL_H = 540;
 
 const SCENE_PLATE_URLS: Record<SceneId, string> = {
-  hearth: hearthPlateUrl,
-  campfire: campfirePlateUrl,
-  rain: rainPlateUrl,
-  aurora: auroraPlateUrl,
-  ocean: oceanPlateUrl,
-  zen: zenPlateUrl,
+  hearth: `${hearthPlateUrl}?v=${APP_VERSION}`,
+  campfire: `${campfirePlateUrl}?v=${APP_VERSION}`,
+  rain: `${rainPlateUrl}?v=${APP_VERSION}`,
+  aurora: `${auroraPlateUrl}?v=${APP_VERSION}`,
+  ocean: `${oceanPlateUrl}?v=${APP_VERSION}`,
+  zen: `${zenPlateUrl}?v=${APP_VERSION}`,
 };
 
 // Zero-GC TypedArray pools

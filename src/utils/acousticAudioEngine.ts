@@ -1,14 +1,14 @@
-import { AudioMixChannels, ScreensaverSettings } from './screensaverLogic';
+import { APP_VERSION, AudioMixChannels, ScreensaverSettings } from './screensaverLogic';
 
 type ChannelKey = keyof AudioMixChannels;
 
 const LOCAL_OGG_ASSETS: Record<ChannelKey, string> = {
-  hearthRoar: './audio/hearth_roar.ogg',
-  woodCrackle: './audio/fire_crackle.ogg',
-  rainDownpour: './audio/rain_downpour.ogg',
-  distantThunder: './audio/distant_thunder.ogg',
-  nightWind: './audio/night_wind.ogg',
-  waterStream: './audio/water_stream.ogg',
+  hearthRoar: `./audio/hearth_roar.ogg?v=${APP_VERSION}`,
+  woodCrackle: `./audio/fire_crackle.ogg?v=${APP_VERSION}`,
+  rainDownpour: `./audio/rain_downpour.ogg?v=${APP_VERSION}`,
+  distantThunder: `./audio/distant_thunder.ogg?v=${APP_VERSION}`,
+  nightWind: `./audio/night_wind.ogg?v=${APP_VERSION}`,
+  waterStream: `./audio/water_stream.ogg?v=${APP_VERSION}`,
 };
 
 interface ChannelNodes {

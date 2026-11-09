@@ -1,7 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig, Plugin } from 'vite';
+
+const APP_VERSION = '1.1.0';
+
+function mypcVersionPlugin(): Plugin {
+  return {
+    name: 'mypc-version-query',
+    enforce: 'post',
+    transformIndexHtml(html) {
+      return html
+        .replace(/(src="\.\/assets\/[^"?]+)"/g, `$1?v=${APP_VERSION}"`)
+        .replace(/(href="\.\/assets\/[^"?]+)"/g, `$1?v=${APP_VERSION}"`);
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
@@ -10,8 +24,15 @@ export default defineConfig(() => {
       outDir: 'docs',
       emptyOutDir: true,
       target: 'chrome108',
+      rollupOptions: {
+        output: {
+          entryFileNames: 'assets/app.js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name][extname]',
+        },
+      },
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), mypcVersionPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

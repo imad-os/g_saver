@@ -64,6 +64,8 @@ export interface SceneMetadata {
   }[];
 }
 
+export const APP_VERSION = '1.1.0';
+
 export const SCENE_IDS: SceneId[] = ['hearth', 'campfire', 'rain', 'aurora', 'ocean', 'zen'];
 
 export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
@@ -84,12 +86,12 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Wood Fire Crackling Field Recording (Wikimedia Commons OGG)',
         license: 'CC0 / Public Domain',
-        url: './audio/fire_crackle.ogg',
+        url: `./audio/fire_crackle.ogg?v=${APP_VERSION}`,
       },
       {
         label: 'Open Fireplace Burning Field Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA / Free Cultural Work',
-        url: './audio/hearth_roar.ogg',
+        url: `./audio/hearth_roar.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -110,12 +112,12 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Wilderness Wood Fire Crackling Foley (Wikimedia Commons OGG)',
         license: 'CC0 / Public Domain',
-        url: './audio/fire_crackle.ogg',
+        url: `./audio/fire_crackle.ogg?v=${APP_VERSION}`,
       },
       {
         label: 'Night Wind Field Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA / Free Cultural Work',
-        url: './audio/night_wind.ogg',
+        url: `./audio/night_wind.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -136,12 +138,12 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Rainfall & Storm Field Recording (Wikimedia Commons OGG)',
         license: 'CC0 / Public Domain',
-        url: './audio/rain_downpour.ogg',
+        url: `./audio/rain_downpour.ogg?v=${APP_VERSION}`,
       },
       {
         label: 'R. Humphries Thunderstorm Recording (FreeSound / Wikimedia OGG)',
         license: 'CC-BY 3.0',
-        url: './audio/distant_thunder.ogg',
+        url: `./audio/distant_thunder.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -162,7 +164,7 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Arctic Wind Field Recording (Wikimedia Commons OGG)',
         license: 'Public Domain',
-        url: './audio/night_wind.ogg',
+        url: `./audio/night_wind.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -183,7 +185,7 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Natural Ocean Waves & Surf Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA',
-        url: './audio/water_stream.ogg',
+        url: `./audio/water_stream.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -204,7 +206,7 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Natural Water & Rain Ambience (Wikimedia Commons OGG)',
         license: 'CC-BY-SA',
-        url: '/audio/water_stream.ogg',
+        url: `./audio/water_stream.ogg?v=${APP_VERSION}`,
       },
     ],
   },
