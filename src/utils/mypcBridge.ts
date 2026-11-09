@@ -29,6 +29,37 @@ export interface MyPCPadInfo {
   axes: number;
 }
 
+export interface MyPCDriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string | number;
+  modifiedTime?: string;
+  thumbnailLink?: string;
+  iconLink?: string;
+  videoMediaMetadata?: {
+    width?: number;
+    height?: number;
+    durationMillis?: string | number;
+  };
+}
+
+export interface MyPCDriveStatus {
+  configured: boolean;
+  signedIn: boolean;
+  needsSignIn?: boolean;
+  allowed?: boolean;
+  account: { email?: string; name?: string; picture?: string } | null;
+  full?: boolean;
+  picker?: boolean;
+}
+
+export interface MyPCDriveStreamHandle {
+  url: string;
+  mode: 'worker' | 'blob';
+  close: () => void;
+}
+
 export interface MyPCGlobal {
   apiLevel?: number;
   app_config?: Record<string, unknown>;
@@ -75,6 +106,30 @@ export interface MyPCGlobal {
     startTest: () => Promise<void>;
     stopTest: () => Promise<void>;
     disconnect: () => Promise<void>;
+  };
+  drive?: {
+    FOLDER?: string;
+    status: () => Promise<MyPCDriveStatus>;
+    signIn: () => Promise<{ email?: string; name?: string; picture?: string }>;
+    addFiles: () => Promise<void>;
+    list: (opts?: {
+      folder?: string;
+      place?: 'all' | 'starred' | 'recent' | 'images' | 'videos' | 'audio' | 'documents' | 'folders' | 'trash';
+      search?: string;
+      q?: string;
+      orderBy?: string;
+      pageSize?: number;
+      pageToken?: string;
+    }) => Promise<{ files: MyPCDriveFile[]; next?: string }>;
+    get: (id: string) => Promise<MyPCDriveFile>;
+    stream: (
+      fileOrId: MyPCDriveFile | string,
+      opts?: {
+        worker?: string;
+        onProgress?: (p: number) => void;
+        max?: number;
+      }
+    ) => Promise<MyPCDriveStreamHandle>;
   };
 }
 
@@ -267,6 +322,34 @@ export function applyScenePreset(
   return {
     ...current,
     scene,
+    activeVideoId: null,
+    audioChannels: { ...meta.defaultAudioMix },
+  };
+}
+
+export function applyVideoPreset(
+  current: ScreensaverSettings,
+  videoId: string | null
+): ScreensaverSettings {
+  if (!videoId) {
+    return {
+      ...current,
+      activeVideoId: null,
+    };
+  }
+  const found = current.videos.find((v) => v.id === videoId);
+  if (!found) {
+    return {
+      ...current,
+      activeVideoId: videoId,
+    };
+  }
+  const targetScene: SceneId = isValidSceneId(found.type) ? found.type : current.scene;
+  const meta = SCENE_METADATA[targetScene];
+  return {
+    ...current,
+    scene: targetScene,
+    activeVideoId: found.id,
     audioChannels: { ...meta.defaultAudioMix },
   };
 }

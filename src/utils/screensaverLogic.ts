@@ -8,6 +8,31 @@ export type ColorTemp = 'natural' | 'warm2700k' | 'candle2000k' | 'midnight';
 
 export type SupportedLang = 'en' | 'fr' | 'es' | 'ar';
 
+export type VideoAudioMode = 'soundscape' | 'video' | 'both' | 'mute';
+
+export interface ScreensaverVideoItem {
+  id: string;
+  uri: string; // e.g. "drive://1AbCdEf...", Drive file ID, or "https://..."
+  title: string; // e.g. "Fire 4K"
+  type: SceneId; // 'hearth' | 'campfire' | 'rain' | 'aurora' | 'ocean' | 'zen'
+  audioMode: VideoAudioMode; // 'soundscape' | 'video' | 'both' | 'mute'
+  videoVolume: number; // 0..1
+  overlayEffects: boolean; // Composite real-time 60Hz embers/rain/ripples over video
+  playbackRate: number; // 0.5..1.5
+  objectFit: 'cover' | 'contain';
+  loop: boolean;
+  sizeBytes?: number; // File size in bytes (from MyPC.drive or sizeMb)
+  mimeType?: string; // e.g. 'video/mp4'
+  resolution?: string; // e.g. '4K UHD' or '1920x1080'
+}
+
+export interface VideoSizeNotice {
+  tier: 'optimal' | 'moderate' | 'large' | 'unknown';
+  sizeLabel: string;
+  badgeText: string;
+  noticeText: string;
+}
+
 export interface AudioMixChannels {
   hearthRoar: number;      // 0..1 Deep convection draft & fireplace rumble
   woodCrackle: number;     // 0..1 Pine & birch resin snaps and pops
@@ -49,6 +74,9 @@ export interface ScreensaverSettings {
   masterVolume: number; // 0..1
   openSourceStreams: boolean; // Use real Wikimedia CC0 field recordings layered with acoustic engine
   audioChannels: AudioMixChannels;
+  // MyPC Drive & Custom Video settings
+  videos: ScreensaverVideoItem[];
+  activeVideoId: string | null; // null = built-in 8K optical plate mode; string = active video id
 }
 
 export interface SceneMetadata {
@@ -64,7 +92,7 @@ export interface SceneMetadata {
   }[];
 }
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.2.0';
 
 export const SCENE_IDS: SceneId[] = ['hearth', 'campfire', 'rain', 'aurora', 'ocean', 'zen'];
 
@@ -242,6 +270,8 @@ export const DEFAULT_SETTINGS: ScreensaverSettings = {
   masterVolume: 0.85,
   openSourceStreams: true,
   audioChannels: { ...SCENE_METADATA.hearth.defaultAudioMix },
+  videos: [],
+  activeVideoId: null,
 };
 
 export function clampNum(val: unknown, min: number, max: number, fallback: number): number {
@@ -254,12 +284,226 @@ export function isValidSceneId(val: unknown): val is SceneId {
   return typeof val === 'string' && (SCENE_IDS as string[]).includes(val);
 }
 
+/**
+ * Parses a video URI from MyPC.app_config or user input into either a MyPC.drive file ID
+ * or a direct playable URL.
+ * Supports:
+ *  - "drive://1AbCdEf..." or "gdrive://1AbCdEf..." or "drive:1AbCdEf..."
+ *  - "https://drive.google.com/file/d/1AbCdEf.../view" or "https://drive.google.com/open?id=1AbCdEf..."
+ *  - Raw Google Drive file IDs (e.g. "1aBcDeFgHiJkLmNoPqRsTuVwXyZ012345")
+ *  - Direct HTTP/HTTPS/relative URLs ("https://example.com/fire4k.mp4", "./videos/fire.mp4")
+ */
+export function parseVideoUri(rawUri: string): {
+  source: 'drive' | 'url';
+  driveFileId?: string;
+  url?: string;
+} {
+  const trimmed = (rawUri || '').trim();
+  if (!trimmed) {
+    return { source: 'url', url: '' };
+  }
+
+  // 1. Explicit drive://, gdrive://, or drive: prefix
+  const prefixMatch = /^(?:g?drive:\/\/|g?drive:)([a-zA-Z0-9_-]+)$/i.exec(trimmed);
+  if (prefixMatch) {
+    return { source: 'drive', driveFileId: prefixMatch[1] };
+  }
+
+  // 2. Google Drive URL: /file/d/<id> or ?id=<id>
+  if (trimmed.includes('drive.google.com') || trimmed.includes('docs.google.com')) {
+    const fileDMatch = /\/file\/d\/([a-zA-Z0-9_-]+)/.exec(trimmed);
+    if (fileDMatch) {
+      return { source: 'drive', driveFileId: fileDMatch[1] };
+    }
+    const idParamMatch = /[?&]id=([a-zA-Z0-9_-]+)/.exec(trimmed);
+    if (idParamMatch) {
+      return { source: 'drive', driveFileId: idParamMatch[1] };
+    }
+  }
+
+  // 3. Direct URL (http://, https://, ./, /, blob:, data:)
+  if (
+    /^(?:https?:\/\/|blob:|data:|\.?\/)/i.test(trimmed) ||
+    /\.(?:mp4|webm|ogg|mov|m4v)(?:[?#].*)?$/i.test(trimmed)
+  ) {
+    return { source: 'url', url: trimmed };
+  }
+
+  // 4. Bare Google Drive File ID (typically 18–50 alphanumeric/-/_ characters with no slashes or dots)
+  if (/^[a-zA-Z0-9_-]{12,64}$/.test(trimmed)) {
+    return { source: 'drive', driveFileId: trimmed };
+  }
+
+  return { source: 'url', url: trimmed };
+}
+
+/**
+ * Evaluates a video's file size for Samsung Tizen 8+ Smart TV playback via MyPC.drive.stream
+ * and returns a clear size notice & recommendation tier.
+ */
+export function evaluateVideoSizeNotice(sizeBytes?: number): VideoSizeNotice {
+  if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return {
+      tier: 'unknown',
+      sizeLabel: 'Size Unknown',
+      badgeText: 'Recommended: < 80 MB',
+      noticeText:
+        'For smooth Smart TV playback via MyPC Drive, select H.264/HEVC MP4 or WebM loops under 80 MB (up to 180 MB max with sw.js 2 MB range streaming).',
+    };
+  }
+
+  const mb = sizeBytes / (1024 * 1024);
+  const sizeLabel = mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+
+  if (mb <= 65) {
+    return {
+      tier: 'optimal',
+      sizeLabel,
+      badgeText: `${sizeLabel} · TV Optimal`,
+      noticeText: `${sizeLabel} — Ideal size for Tizen Smart TVs. Instant start and minimal RAM footprint.`,
+    };
+  }
+
+  if (mb <= 180) {
+    return {
+      tier: 'moderate',
+      sizeLabel,
+      badgeText: `${sizeLabel} · Range Stream`,
+      noticeText: `${sizeLabel} — Streams in 2 MB chunks via MyPC Drive Service Worker (sw.js). Note: if Service Workers are disabled, the full ${sizeLabel} buffers in TV RAM before playback.`,
+    };
+  }
+
+  return {
+    tier: 'large',
+    sizeLabel,
+    badgeText: `${sizeLabel} · Large File Notice`,
+    noticeText: `${sizeLabel} — Heavy file for Smart TV memory. Files over 180 MB may buffer slowly or exceed TV RAM in blob fallback mode. Consider compressing to a 20–60 MB loop.`,
+  };
+}
+
+function sanitizeSingleVideoItem(
+  raw: Record<string, unknown>,
+  fallbackId: string
+): ScreensaverVideoItem | null {
+  const uri =
+    typeof raw.uri === 'string'
+      ? raw.uri.trim()
+      : typeof raw.url === 'string'
+      ? raw.url.trim()
+      : typeof raw.fileId === 'string'
+      ? `drive://${raw.fileId.trim()}`
+      : '';
+
+  if (!uri) return null;
+
+  const title =
+    typeof raw.title === 'string' && raw.title.trim()
+      ? raw.title.trim()
+      : typeof raw.name === 'string' && raw.name.trim()
+      ? raw.name.trim()
+      : 'Custom Ambient Video';
+
+  const id =
+    typeof raw.id === 'string' && raw.id.trim()
+      ? raw.id.trim()
+      : fallbackId || `vid_${uri.replace(/[^a-zA-Z0-9_-]/g, '').slice(-14) || '1'}`;
+
+  const type: SceneId = isValidSceneId(raw.type)
+    ? raw.type
+    : isValidSceneId(raw.scene)
+    ? raw.scene
+    : isValidSceneId(raw.style)
+    ? raw.style
+    : 'hearth';
+
+  const validAudioModes: VideoAudioMode[] = ['soundscape', 'video', 'both', 'mute'];
+  const audioMode: VideoAudioMode =
+    typeof raw.audioMode === 'string' && validAudioModes.includes(raw.audioMode as VideoAudioMode)
+      ? (raw.audioMode as VideoAudioMode)
+      : raw.mute === true
+      ? 'mute'
+      : raw.useVideoAudio === true
+      ? 'both'
+      : 'both';
+
+  const sizeBytes =
+    typeof raw.sizeBytes === 'number' && raw.sizeBytes > 0
+      ? raw.sizeBytes
+      : typeof raw.size === 'number' && raw.size > 0
+      ? raw.size
+      : typeof raw.size === 'string' && Number(raw.size) > 0
+      ? Number(raw.size)
+      : typeof raw.sizeMb === 'number' && raw.sizeMb > 0
+      ? Math.round(raw.sizeMb * 1024 * 1024)
+      : undefined;
+
+  return {
+    id,
+    uri,
+    title,
+    type,
+    audioMode,
+    videoVolume: clampNum(raw.videoVolume ?? raw.volume, 0, 1, 0.85),
+    overlayEffects: typeof raw.overlayEffects === 'boolean' ? raw.overlayEffects : false,
+    playbackRate: clampNum(raw.playbackRate ?? raw.speed, 0.5, 1.5, 1.0),
+    objectFit: raw.objectFit === 'contain' ? 'contain' : 'cover',
+    loop: typeof raw.loop === 'boolean' ? raw.loop : true,
+    sizeBytes,
+    mimeType: typeof raw.mimeType === 'string' ? raw.mimeType : 'video/mp4',
+    resolution: typeof raw.resolution === 'string' ? raw.resolution : undefined,
+  };
+}
+
+/**
+ * Normalizes the `videos` field from MyPC.app_config or saved settings.
+ * Supports:
+ * 1) Single object: videos: { "uri": "...", "title": "fire 4k", "type": "hearth" }
+ * 2) Array of objects: videos: [ { "uri": "...", "title": "fire 4k", "type": "hearth" } ]
+ * 3) Keyed dictionary: videos: { "fire4k": { "uri": "...", "title": "fire 4k" } }
+ */
+export function normalizeVideosConfig(raw: unknown): ScreensaverVideoItem[] {
+  if (!raw || typeof raw !== 'object') return [];
+
+  if (Array.isArray(raw)) {
+    const list: ScreensaverVideoItem[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const item = raw[i];
+      if (item && typeof item === 'object') {
+        const parsed = sanitizeSingleVideoItem(item as Record<string, unknown>, `video_${i + 1}`);
+        if (parsed) list.push(parsed);
+      }
+    }
+    return list;
+  }
+
+  const obj = raw as Record<string, unknown>;
+  // Check if it is a single video object directly containing `uri`, `url`, or `fileId`
+  if (typeof obj.uri === 'string' || typeof obj.url === 'string' || typeof obj.fileId === 'string') {
+    const single = sanitizeSingleVideoItem(obj, 'video_1');
+    return single ? [single] : [];
+  }
+
+  // Otherwise treat as a dictionary of keyed video objects
+  const out: ScreensaverVideoItem[] = [];
+  for (const [key, val] of Object.entries(obj)) {
+    if (val && typeof val === 'object') {
+      const parsed = sanitizeSingleVideoItem(val as Record<string, unknown>, key);
+      if (parsed) out.push(parsed);
+    }
+  }
+  return out;
+}
+
 export function sanitizeSettings(
   base: ScreensaverSettings,
   partial?: Record<string, unknown> | null
 ): ScreensaverSettings {
   if (!partial || typeof partial !== 'object') {
-    return { ...base, audioChannels: { ...base.audioChannels } };
+    return {
+      ...base,
+      audioChannels: { ...base.audioChannels },
+      videos: [...base.videos],
+    };
   }
 
   const nextScene = isValidSceneId(partial.scene)
@@ -297,6 +541,33 @@ export function sanitizeSettings(
     partial.audioChannels && typeof partial.audioChannels === 'object'
       ? (partial.audioChannels as Record<string, unknown>)
       : {};
+
+  // Merge or replace videos if provided in partial
+  let nextVideos = [...base.videos];
+  if ('videos' in partial && partial.videos !== undefined) {
+    const parsedVideos = normalizeVideosConfig(partial.videos);
+    // Merge by id/uri so MyPC.app_config videos and user-added videos coexist cleanly
+    const map = new Map<string, ScreensaverVideoItem>();
+    for (const v of base.videos) map.set(v.id, v);
+    for (const v of parsedVideos) map.set(v.id, v);
+    nextVideos = Array.from(map.values());
+  }
+
+  let nextActiveVideoId = base.activeVideoId;
+  if ('activeVideoId' in partial) {
+    if (partial.activeVideoId === null || partial.activeVideoId === '') {
+      nextActiveVideoId = null;
+    } else if (typeof partial.activeVideoId === 'string') {
+      nextActiveVideoId = partial.activeVideoId;
+    }
+  } else if (
+    base.activeVideoId === null &&
+    'videos' in partial &&
+    nextVideos.length > 0 &&
+    partial.autoPlayVideo === true
+  ) {
+    nextActiveVideoId = nextVideos[0].id;
+  }
 
   return {
     scene: nextScene,
@@ -340,13 +611,15 @@ export function sanitizeSettings(
       nightWind: clampNum(rawChannels.nightWind, 0, 1, base.audioChannels.nightWind),
       waterStream: clampNum(rawChannels.waterStream, 0, 1, base.audioChannels.waterStream),
     },
+    videos: nextVideos,
+    activeVideoId: nextActiveVideoId,
   };
 }
 
 /**
  * Parses URL query string and MyPC launch path into partial settings overrides.
  * Supports MyPC Screensaver Settings host integration:
- *   ?scene=campfire&mode=settings&clock=12h&quality=high&fire=1.1&rain=0.8&orbit=1&autostart=1
+ *   ?scene=campfire&mode=settings&clock=12h&quality=high&fire=1.1&rain=0.8&orbit=1&video=fire4k
  */
 export function parseLaunchOverrides(
   searchStr: string,
@@ -359,6 +632,15 @@ export function parseLaunchOverrides(
   if (isValidSceneId(sceneParam)) {
     out.scene = sceneParam;
     out.audioChannels = { ...SCENE_METADATA[sceneParam].defaultAudioMix };
+  }
+
+  const videoParam = params.get('video');
+  if (videoParam) {
+    if (videoParam === 'off' || videoParam === 'none' || videoParam === '0') {
+      out.activeVideoId = null;
+    } else {
+      out.activeVideoId = videoParam;
+    }
   }
 
   const modeParam = params.get('mode');
@@ -394,15 +676,32 @@ export function parseLaunchOverrides(
   if (params.has('orbit')) out.burnInProtection = params.get('orbit') !== '0' && params.get('orbit') !== 'false';
   if (params.has('mute')) out.masterAudio = params.get('mute') !== '1' && params.get('mute') !== 'true';
 
-  // Deep link path from MyPC.launch (e.g. "scene/campfire", "settings", "preview/rain")
+  // Support ?app_config={...} in standalone browser testing per MyPC SDK Section 4
+  const appConfigParam = params.get('app_config');
+  if (appConfigParam) {
+    try {
+      const parsedCfg = JSON.parse(appConfigParam);
+      if (parsedCfg && typeof parsedCfg === 'object' && 'videos' in parsedCfg) {
+        out.videos = normalizeVideosConfig(parsedCfg.videos);
+      }
+    } catch {
+      // ignore malformed JSON in query param
+    }
+  }
+
+  // Deep link path from MyPC.launch (e.g. "scene/campfire", "video/fire4k", "settings", "preview/rain")
   if (launchPath && typeof launchPath === 'string') {
     const clean = launchPath.replace(/^[/?#]+/, '').trim();
     if (clean === 'settings' || clean.startsWith('settings/')) {
       out.mode = 'settings';
+    } else if (clean.startsWith('video/')) {
+      const targetVid = clean.slice('video/'.length).split('?')[0];
+      if (targetVid) out.activeVideoId = targetVid;
     } else if (clean.startsWith('scene/')) {
       const target = clean.slice('scene/'.length).split('?')[0];
       if (isValidSceneId(target)) {
         out.scene = target;
+        out.activeVideoId = null;
         out.audioChannels = { ...SCENE_METADATA[target].defaultAudioMix };
       }
     } else if (clean.startsWith('preview/')) {
@@ -557,6 +856,9 @@ export function buildMyPCHostUrl(
   params.set('embers', settings.emberDensity.toFixed(2));
   params.set('rain', settings.rainIntensity.toFixed(2));
   params.set('orbit', settings.burnInProtection ? '1' : '0');
+  if (settings.activeVideoId) {
+    params.set('video', settings.activeVideoId);
+  }
   return `${cleanBase}?${params.toString()}`;
 }
 
@@ -580,6 +882,7 @@ export interface TranslationStrings {
   };
   tabs: {
     visuals: string;
+    videos: string;
     audio: string;
     display: string;
     mypc: string;
@@ -668,6 +971,7 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
     },
     tabs: {
       visuals: 'Scene & Graphics',
+      videos: 'Videos & MyPC Drive',
       audio: 'Soundscape Mixer',
       display: 'Clock & OLED Care',
       mypc: 'MyPC Integration',
@@ -761,6 +1065,7 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
     },
     tabs: {
       visuals: 'Scène & Graphismes',
+      videos: 'Vidéos & MyPC Drive',
       audio: 'Mixeur Sonore',
       display: 'Horloge & OLED',
       mypc: 'Intégration MyPC',
@@ -854,6 +1159,7 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
     },
     tabs: {
       visuals: 'Escena y Gráficos',
+      videos: 'Videos y MyPC Drive',
       audio: 'Mezclador de Sonido',
       display: 'Reloj y Cuidado OLED',
       mypc: 'Integración MyPC',
@@ -947,6 +1253,7 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
     },
     tabs: {
       visuals: 'المشهد والرسوميات',
+      videos: 'الفيديو و MyPC Drive',
       audio: 'مازج الصوت الطبيعي',
       display: 'الساعة وحماية OLED',
       mypc: 'ربط إعدادات MyPC',

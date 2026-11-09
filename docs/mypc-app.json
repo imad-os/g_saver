@@ -6,7 +6,7 @@
   "type": "app",
   "entry": "index.html",
   "icon": "icon.svg",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "config": {
     "allow_background_running": false,
     "defaultScene": "hearth",
@@ -31,7 +31,8 @@
     "windSpeed": 0.35,
     "lightningFreq": 0.4,
     "masterAudio": true,
-    "openSourceStreams": true
+    "openSourceStreams": true,
+    "videos": []
   },
   "widgets": [
     {

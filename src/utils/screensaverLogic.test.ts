@@ -10,6 +10,9 @@ import {
   buildMyPCHostUrl,
   SCENE_IDS,
   TRANSLATIONS,
+  normalizeVideosConfig,
+  parseVideoUri,
+  evaluateVideoSizeNotice,
 } from './screensaverLogic';
 
 test('sanitizeSettings preserves defaults and clamps out-of-range values', () => {
@@ -106,3 +109,55 @@ test('all 4 MyPC languages cover all 6 scenes', () => {
     }
   }
 });
+
+test('normalizeVideosConfig supports single object, array, and keyed dictionary in MyPC.app_config', () => {
+  const singleObj = normalizeVideosConfig({
+    uri: 'drive://1AbCdEfGhIjKlMnOpQrStUv',
+    title: 'fire 4k',
+    type: 'hearth',
+    audioMode: 'both',
+    sizeMb: 42,
+  });
+  assert.equal(singleObj.length, 1);
+  assert.equal(singleObj[0].title, 'fire 4k');
+  assert.equal(singleObj[0].uri, 'drive://1AbCdEfGhIjKlMnOpQrStUv');
+  assert.equal(singleObj[0].type, 'hearth');
+  assert.equal(singleObj[0].sizeBytes, 42 * 1024 * 1024);
+
+  const dictObj = normalizeVideosConfig({
+    hearth4k: { uri: 'drive://1111111111111111', title: 'Hearth 4K', type: 'hearth' },
+    rain4k: { uri: 'https://example.com/rain.mp4', title: 'Rain 4K', type: 'rain' },
+  });
+  assert.equal(dictObj.length, 2);
+  assert.equal(dictObj[1].type, 'rain');
+});
+
+test('parseVideoUri detects MyPC Drive IDs and direct video URLs', () => {
+  assert.deepEqual(parseVideoUri('drive://1AbCdEfGhIjKlMnOpQrStUv'), {
+    source: 'drive',
+    driveFileId: '1AbCdEfGhIjKlMnOpQrStUv',
+  });
+  assert.deepEqual(
+    parseVideoUri('https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUv/view?usp=sharing'),
+    {
+      source: 'drive',
+      driveFileId: '1AbCdEfGhIjKlMnOpQrStUv',
+    }
+  );
+  assert.deepEqual(parseVideoUri('https://cdn.example.com/fireplace_4k.mp4'), {
+    source: 'url',
+    url: 'https://cdn.example.com/fireplace_4k.mp4',
+  });
+});
+
+test('evaluateVideoSizeNotice classifies optimal, moderate, and large Smart TV video files', () => {
+  const opt = evaluateVideoSizeNotice(45 * 1024 * 1024);
+  assert.equal(opt.tier, 'optimal');
+
+  const mod = evaluateVideoSizeNotice(120 * 1024 * 1024);
+  assert.equal(mod.tier, 'moderate');
+
+  const lrg = evaluateVideoSizeNotice(250 * 1024 * 1024);
+  assert.equal(lrg.tier, 'large');
+});
+

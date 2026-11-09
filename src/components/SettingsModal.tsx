@@ -30,14 +30,20 @@ import {
   Code2,
   Zap,
   X,
+  Film,
+  HardDrive,
 } from 'lucide-react';
+import { VideoSettingsTab } from './VideoSettingsTab';
+import { applyVideoPreset } from '../utils/mypcBridge';
+
+export type SettingsTabId = 'visuals' | 'videos' | 'audio' | 'display' | 'mypc';
 
 interface SettingsModalProps {
   settings: ScreensaverSettings;
   lang: SupportedLang;
   hardwareTier: 'low' | 'mid' | 'high';
-  activeTab: 'visuals' | 'audio' | 'display' | 'mypc';
-  setActiveTab: (tab: 'visuals' | 'audio' | 'display' | 'mypc') => void;
+  activeTab: SettingsTabId;
+  setActiveTab: (tab: SettingsTabId) => void;
   onUpdateSettings: (next: ScreensaverSettings) => void;
   onSelectScene: (scene: SceneId) => void;
   onClose: () => void;
@@ -82,7 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleResetDefaults = () => {
     const reset = applyScenePreset(
-      { ...DEFAULT_SETTINGS, mode: settings.mode },
+      { ...DEFAULT_SETTINGS, mode: settings.mode, videos: settings.videos },
       settings.scene
     );
     onUpdateSettings(reset);
@@ -108,6 +114,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const previewLaunchUrl = buildMyPCHostUrl(baseUrl, settings, 'preview');
 
   const currentSceneMeta = SCENE_METADATA[settings.scene];
+  const activeVideo = settings.activeVideoId
+    ? settings.videos.find((v) => v.id === settings.activeVideoId) || null
+    : null;
 
   return (
     <div
@@ -135,7 +144,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {t.appName} — {t.hud.settings}
               </h2>
               <p className="text-xs md:text-sm text-stone-400">
-                {t.scenes[settings.scene].name} · {currentSceneMeta.tempLabel} · TV GPU Tier:{' '}
+                {activeVideo
+                  ? `Video Active: ${activeVideo.title} (${t.scenes[activeVideo.type].badge})`
+                  : `${t.scenes[settings.scene].name} · ${currentSceneMeta.tempLabel}`}{' '}
+                · TV GPU Tier:{' '}
                 <span className="font-mono text-amber-400 uppercase">{hardwareTier}</span>
               </p>
             </div>
@@ -181,6 +193,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {(
             [
               { id: 'visuals', label: t.tabs.visuals, icon: Sliders },
+              { id: 'videos', label: t.tabs.videos, icon: Film },
               { id: 'audio', label: t.tabs.audio, icon: Volume2 },
               { id: 'display', label: t.tabs.display, icon: Clock },
               { id: 'mypc', label: t.tabs.mypc, icon: Code2 },
@@ -203,6 +216,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
+                {tab.id === 'videos' && settings.videos.length > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                      isActive ? 'bg-stone-950 text-amber-400' : 'bg-amber-500/20 text-amber-300'
+                    }`}
+                  >
+                    {settings.videos.length}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -210,8 +232,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Tab Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {activeTab === 'videos' && (
+            <VideoSettingsTab
+              settings={settings}
+              lang={lang}
+              onUpdateSettings={onUpdateSettings}
+            />
+          )}
+
           {activeTab === 'visuals' && (
             <div className="space-y-6">
+              {/* Quick MyPC Drive Video Banner & Selector inside Visuals Tab */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-stone-900/90 border border-stone-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+                    <HardDrive className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-stone-100">
+                      MyPC Drive 4K Video Screensaver Support
+                    </div>
+                    <p className="text-xs text-stone-400">
+                      {activeVideo
+                        ? `Currently playing video "${activeVideo.title}" (${activeVideo.uri}). Recommended video size: < 80 MB.`
+                        : 'Stream 4K fireplace, campfire, or rain videos from MyPC Google Drive or MyPC.app_config.videos (Recommended size: < 80 MB).'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {settings.videos.map((v) => {
+                    const isVidActive = settings.activeVideoId === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() =>
+                          onUpdateSettings(applyVideoPreset(settings, isVidActive ? null : v.id))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                          isVidActive
+                            ? 'bg-amber-500 text-stone-950 border-amber-400'
+                            : 'bg-stone-800 text-stone-200 border-stone-700 hover:bg-stone-700'
+                        }`}
+                      >
+                        {isVidActive ? `Playing: ${v.title}` : `Play: ${v.title}`}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('videos')}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-stone-950 transition-colors"
+                  >
+                    <Film className="w-3.5 h-3.5" />
+                    <span>Manage Videos &amp; MyPC Drive</span>
+                  </button>
+                </div>
+              </div>
+
               {/* 6 Scene Selection Cards */}
               <div>
                 <h3 className="text-sm font-semibold text-stone-300 mb-3">
@@ -219,7 +298,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {SCENE_IDS.map((sceneId) => {
-                    const isSelected = settings.scene === sceneId;
+                    const isSelected = settings.scene === sceneId && !settings.activeVideoId;
                     const sceneInfo = t.scenes[sceneId];
                     const meta = SCENE_METADATA[sceneId];
                     return (
@@ -1018,6 +1097,24 @@ screensaverFrame.contentWindow.postMessage({
                         emberDensity: settings.emberDensity,
                         rainIntensity: settings.rainIntensity,
                         burnInProtection: settings.burnInProtection,
+                        videos:
+                          settings.videos.length > 0
+                            ? settings.videos.map((v) => ({
+                                uri: v.uri,
+                                title: v.title,
+                                type: v.type,
+                                audioMode: v.audioMode,
+                                sizeMb: v.sizeBytes
+                                  ? Math.round(v.sizeBytes / (1024 * 1024))
+                                  : 48,
+                              }))
+                            : {
+                                uri: 'drive://YOUR_DRIVE_FILE_ID',
+                                title: 'fire 4k',
+                                type: 'hearth',
+                                audioMode: 'both',
+                                sizeMb: 48,
+                              },
                       },
                       null,
                       2

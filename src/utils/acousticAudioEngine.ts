@@ -303,6 +303,12 @@ export class AcousticAudioEngine {
 
   private computeEffectiveMaster(settings: ScreensaverSettings): number {
     if (!settings.masterAudio) return 0;
+    if (settings.activeVideoId) {
+      const activeVideo = settings.videos.find((v) => v.id === settings.activeVideoId);
+      if (activeVideo && (activeVideo.audioMode === 'video' || activeVideo.audioMode === 'mute')) {
+        return 0;
+      }
+    }
     const hostScale = Math.max(this.mypcVolume.music, this.mypcVolume.sfx, 0.25);
     return Math.max(0, Math.min(1, settings.masterVolume * hostScale));
   }

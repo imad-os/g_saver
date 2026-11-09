@@ -16,6 +16,7 @@ import {
   MyPCInfo,
   MyPCPadInfo,
   applyScenePreset,
+  applyVideoPreset,
   getMyPC,
   loadInitialSettings,
   persistSettings,
@@ -23,7 +24,8 @@ import {
 } from './utils/mypcBridge';
 import { AcousticAudioEngine } from './utils/acousticAudioEngine';
 import { ScreensaverCanvas } from './components/ScreensaverCanvas';
-import { SettingsModal } from './components/SettingsModal';
+import { VideoBackdropPlayer } from './components/VideoBackdropPlayer';
+import { SettingsModal, SettingsTabId } from './components/SettingsModal';
 import {
   Flame,
   CloudRain,
@@ -41,6 +43,7 @@ import {
   Gamepad2,
   ShieldCheck,
   HeartPulse,
+  Film,
 } from 'lucide-react';
 
 const SCENE_ICONS: Record<SceneId, React.FC<{ className?: string }>> = {
@@ -63,7 +66,7 @@ export default function App() {
     initialRef.current.settings.mode === 'settings'
   );
   const [isPureView, setIsPureView] = useState<boolean>(initialRef.current.pureView);
-  const [activeTab, setActiveTab] = useState<'visuals' | 'audio' | 'display' | 'mypc'>('visuals');
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('visuals');
   const [lang, setLang] = useState<SupportedLang>('en');
   const [hardwareTier, setHardwareTier] = useState<'low' | 'mid' | 'high'>('high');
   const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -195,6 +198,11 @@ export default function App() {
         if (clean === 'settings') {
           setIsSettingsOpen(true);
           setIsPureView(false);
+        } else if (clean.startsWith('video/')) {
+          const targetVid = clean.slice('video/'.length).trim();
+          if (targetVid) {
+            handleUpdateSettings(applyVideoPreset(settingsRef.current, targetVid));
+          }
         } else if (clean.startsWith('scene/')) {
           const target = clean.slice('scene/'.length) as SceneId;
           if (isValidSceneId(target)) {
@@ -229,26 +237,15 @@ export default function App() {
         }
 
         if (isSettingsOpenRef.current) {
+          const tabs: SettingsTabId[] = ['visuals', 'videos', 'audio', 'display', 'mypc'];
           if (action === 'cancel') {
             setIsSettingsOpen(false);
           } else if (action === 'left') {
-            const tabs: ('visuals' | 'audio' | 'display' | 'mypc')[] = [
-              'visuals',
-              'audio',
-              'display',
-              'mypc',
-            ];
             setActiveTab((curr) => {
               const i = tabs.indexOf(curr);
               return tabs[(i - 1 + tabs.length) % tabs.length];
             });
           } else if (action === 'right') {
-            const tabs: ('visuals' | 'audio' | 'display' | 'mypc')[] = [
-              'visuals',
-              'audio',
-              'display',
-              'mypc',
-            ];
             setActiveTab((curr) => {
               const i = tabs.indexOf(curr);
               return tabs[(i + 1) % tabs.length];
@@ -399,6 +396,11 @@ export default function App() {
   const currentSceneMeta = SCENE_METADATA[settings.scene];
   const clockFormatted = formatClockTime(nowDate, settings.clockFormat, settings.showSeconds);
   const dateFormatted = formatLocalizedDate(nowDate, lang);
+  const activeVideo = settings.activeVideoId
+    ? settings.videos.find(
+        (v) => v.id === settings.activeVideoId || v.uri === settings.activeVideoId
+      ) || null
+    : null;
 
   return (
     <main
@@ -414,6 +416,32 @@ export default function App() {
         gamepadAxesRef={gamepadAxesRef}
         onThunderFlash={(intensity) => audioEngineRef.current?.triggerThunderClap(intensity)}
         onCanvasInteract={() => {
+          audioEngineRef.current?.unlockOnGesture();
+          if (isPureView && settings.mode !== 'preview') {
+            setIsPureView(false);
+          }
+        }}
+      />
+
+      {/* 1B. Hardware-Accelerated MyPC Drive & Custom 4K Video Player Layer */}
+      <VideoBackdropPlayer
+        settings={settings}
+        activeVideo={activeVideo}
+        isPaused={isPaused}
+        isPureView={isPureView}
+        orbitOffset={orbitOffset}
+        onVideoMetadataResolved={(videoId, patch) => {
+          const nextVideos = settingsRef.current.videos.map((v) =>
+            v.id === videoId ? { ...v, ...patch } : v
+          );
+          handleUpdateSettings({ ...settingsRef.current, videos: nextVideos });
+        }}
+        onOpenVideoSettings={() => {
+          setActiveTab('videos');
+          setIsSettingsOpen(true);
+          setIsPureView(false);
+        }}
+        onInteract={() => {
           audioEngineRef.current?.unlockOnGesture();
           if (isPureView && settings.mode !== 'preview') {
             setIsPureView(false);
@@ -454,7 +482,11 @@ export default function App() {
             {settings.showDate && <span>{dateFormatted}</span>}
             {settings.showDate && settings.showAmbientBadge && <span aria-hidden="true">·</span>}
             {settings.showAmbientBadge && (
-              <span className="text-amber-300/95">{currentSceneMeta.tempLabel}</span>
+              <span className="text-amber-300/95">
+                {activeVideo
+                  ? `${activeVideo.title} · ${currentSceneMeta.tempLabel}`
+                  : currentSceneMeta.tempLabel}
+              </span>
             )}
             {settings.burnInProtection && (
               <>
@@ -486,6 +518,21 @@ export default function App() {
           }}
           className="fixed top-7 right-8 z-20 flex items-center gap-2.5"
         >
+          {/* Quick Videos & MyPC Drive Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('videos');
+              setIsSettingsOpen(true);
+            }}
+            aria-label={t.tabs.videos}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-semibold border border-stone-700/80 text-stone-100 hover:border-amber-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400 transition-all whitespace-nowrap shrink-0"
+            style={{ backgroundColor: 'rgba(15, 12, 10, 0.85)' }}
+          >
+            <Film className="w-4 h-4 text-amber-400" />
+            <span className="hidden md:inline">{t.tabs.videos}</span>
+          </button>
+
           {/* Audio Mute / Unmute Button */}
           <button
             type="button"
@@ -575,10 +622,12 @@ export default function App() {
                     className="text-lg md:text-xl font-semibold text-stone-100"
                     style={{ fontFamily: 'Outfit, sans-serif' }}
                   >
-                    {t.scenes[settings.scene].name}
+                    {activeVideo ? `${activeVideo.title} (Video)` : t.scenes[settings.scene].name}
                   </h1>
                   <p className="text-xs text-stone-400 line-clamp-1">
-                    {t.scenes[settings.scene].subtitle}
+                    {activeVideo
+                      ? `MyPC Video Stream · ${t.scenes[activeVideo.type].name}`
+                      : t.scenes[settings.scene].subtitle}
                   </p>
                 </div>
                 <button
@@ -632,7 +681,7 @@ export default function App() {
             >
               {SCENE_IDS.map((sceneId) => {
                 const Icon = SCENE_ICONS[sceneId];
-                const isSelected = settings.scene === sceneId;
+                const isSelected = settings.scene === sceneId && !activeVideo;
                 const sceneInfo = t.scenes[sceneId];
                 return (
                   <button
@@ -651,6 +700,37 @@ export default function App() {
                 );
               })}
             </nav>
+
+            {/* Quick Custom Video Pills if videos are configured */}
+            {settings.videos.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap mt-2.5 pt-2.5 border-t border-stone-800/70">
+                <span className="text-[11px] font-semibold text-amber-400 flex items-center gap-1">
+                  <Film className="w-3.5 h-3.5" />
+                  <span>Videos:</span>
+                </span>
+                {settings.videos.map((v) => {
+                  const isVidSelected = settings.activeVideoId === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() =>
+                        handleUpdateSettings(
+                          applyVideoPreset(settings, isVidSelected ? null : v.id)
+                        )
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                        isVidSelected
+                          ? 'bg-amber-500 text-stone-950'
+                          : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                      }`}
+                    >
+                      {v.title}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Bottom Control Hint Bar (TV Remote & Gamepad First) */}
             <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-2.5 border-t border-stone-800/70 text-[11px] text-stone-400">
