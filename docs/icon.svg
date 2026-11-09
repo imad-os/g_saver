@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="68%" r="65%">
+      <stop offset="0%" stop-color="#451a03" />
+      <stop offset="55%" stop-color="#1c0a04" />
+      <stop offset="100%" stop-color="#090504" />
+    </radialGradient>
+    <linearGradient id="outerFlame" x1="50%" y1="100%" x2="50%" y2="0%">
+      <stop offset="0%" stop-color="#ea580c" />
+      <stop offset="55%" stop-color="#f97316" />
+      <stop offset="100%" stop-color="#fbbf24" />
+    </linearGradient>
+    <linearGradient id="innerFlame" x1="50%" y1="100%" x2="50%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="65%" stop-color="#fde047" />
+      <stop offset="100%" stop-color="#fffbeb" />
+    </linearGradient>
+    <linearGradient id="arch" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#44403c" />
+      <stop offset="100%" stop-color="#1c1917" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="44" fill="url(#bgGlow)" stroke="#78350f" stroke-width="4" />
+  <!-- Fireplace Stone Arch -->
+  <path d="M36 216 V112 C36 62 76 32 128 32 C180 32 220 62 220 112 V216 H194 V114 C194 76 165 54 128 54 C91 54 62 76 62 114 V216 Z" fill="url(#arch)" stroke="#57534e" stroke-width="2" />
+  <!-- Crossed Oak Logs -->
+  <rect x="64" y="186" width="128" height="20" rx="10" transform="rotate(-10 128 196)" fill="#451a03" stroke="#9a3412" stroke-width="2" />
+  <rect x="64" y="186" width="128" height="20" rx="10" transform="rotate(10 128 196)" fill="#3b1502" stroke="#b45309" stroke-width="2" />
+  <!-- Glowing Coal Bed -->
+  <ellipse cx="128" cy="206" rx="54" ry="8" fill="#fb923c" opacity="0.85" />
+  <!-- Outer Flame -->
+  <path d="M128 66 C148 98 178 122 172 162 C168 186 150 198 128 198 C106 198 88 186 84 162 C78 122 104 106 114 82 C118 98 112 114 118 122 C122 102 122 82 128 66 Z" fill="url(#outerFlame)" />
+  <!-- Inner Core Flame -->
+  <path d="M130 104 C142 124 156 142 152 168 C149 184 140 194 128 194 C116 194 107 184 104 168 C100 144 118 128 130 104 Z" fill="url(#innerFlame)" />
+  <!-- Embers -->
+  <circle cx="96" cy="96" r="3.5" fill="#fde047" />
+  <circle cx="160" cy="84" r="2.5" fill="#fb923c" />
+  <circle cx="144" cy="58" r="3" fill="#fef08a" />
+</svg>

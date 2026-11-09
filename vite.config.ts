@@ -5,6 +5,12 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: './',
+    build: {
+      outDir: 'docs',
+      emptyOutDir: true,
+      target: 'chrome108',
+    },
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

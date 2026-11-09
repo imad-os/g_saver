@@ -84,12 +84,12 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Wood Fire Crackling Field Recording (Wikimedia Commons OGG)',
         license: 'CC0 / Public Domain',
-        url: '/audio/fire_crackle.ogg',
+        url: './audio/fire_crackle.ogg',
       },
       {
         label: 'Open Fireplace Burning Field Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA / Free Cultural Work',
-        url: '/audio/hearth_roar.ogg',
+        url: './audio/hearth_roar.ogg',
       },
     ],
   },
@@ -110,12 +110,12 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Wilderness Wood Fire Crackling Foley (Wikimedia Commons OGG)',
         license: 'CC0 / Public Domain',
-        url: '/audio/fire_crackle.ogg',
+        url: './audio/fire_crackle.ogg',
       },
       {
         label: 'Night Wind Field Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA / Free Cultural Work',
-        url: '/audio/night_wind.ogg',
+        url: './audio/night_wind.ogg',
       },
     ],
   },
@@ -136,12 +136,12 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Rainfall & Storm Field Recording (Wikimedia Commons OGG)',
         license: 'CC0 / Public Domain',
-        url: '/audio/rain_downpour.ogg',
+        url: './audio/rain_downpour.ogg',
       },
       {
         label: 'R. Humphries Thunderstorm Recording (FreeSound / Wikimedia OGG)',
         license: 'CC-BY 3.0',
-        url: '/audio/distant_thunder.ogg',
+        url: './audio/distant_thunder.ogg',
       },
     ],
   },
@@ -162,7 +162,7 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Arctic Wind Field Recording (Wikimedia Commons OGG)',
         license: 'Public Domain',
-        url: '/audio/night_wind.ogg',
+        url: './audio/night_wind.ogg',
       },
     ],
   },
@@ -183,7 +183,7 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
       {
         label: 'Natural Ocean Waves & Surf Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA',
-        url: '/audio/water_stream.ogg',
+        url: './audio/water_stream.ogg',
       },
     ],
   },

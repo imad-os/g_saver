@@ -1,0 +1,73 @@
+{
+  "mypc": 1,
+  "id": "hearth-horizon",
+  "name": "Hearth & Horizon",
+  "description": "Ultra-optimized fire camp, home fireplace, rain & ambient screensavers with high-resolution audio",
+  "type": "app",
+  "entry": "index.html",
+  "icon": "icon.svg",
+  "version": "1.0.0",
+  "config": {
+    "allow_background_running": false,
+    "defaultScene": "hearth",
+    "defaultMode": "screensaver",
+    "qualityTier": "auto",
+    "clockFormat": "24h",
+    "showClock": true,
+    "showSeconds": false,
+    "showDate": true,
+    "showAmbientBadge": true,
+    "hudAutoHideSec": 12,
+    "burnInProtection": true,
+    "pixelOrbitRange": 14,
+    "peakLuminance": 100,
+    "colorTemp": "natural",
+    "autoCycleMinutes": 0,
+    "sleepTimerMinutes": 0,
+    "fireIntensity": 0.85,
+    "emberDensity": 0.8,
+    "flameHeight": 0.8,
+    "rainIntensity": 0.75,
+    "windSpeed": 0.35,
+    "lightningFreq": 0.4,
+    "masterAudio": true,
+    "openSourceStreams": true
+  },
+  "widgets": [
+    {
+      "id": "ambient",
+      "title": {
+        "en": "Hearth & Horizon",
+        "fr": "Foyer & Horizon",
+        "es": "Hogar y Horizonte",
+        "ar": "الموقد والأفق"
+      },
+      "file": "widgets/ambient.js",
+      "size": "medium",
+      "every": 30,
+      "background": false,
+      "description": "Quickly launch Campfire, Home Fireplace, or Midnight Rain screensaver",
+      "settings": [
+        {
+          "id": "scene",
+          "label": {
+            "en": "Default Scene",
+            "fr": "Scène par défaut",
+            "es": "Escena predeterminada",
+            "ar": "المشهد الافتراضي"
+          },
+          "type": "select",
+          "default": "hearth",
+          "options": [
+            { "value": "hearth", "label": "Home Fireplace" },
+            { "value": "campfire", "label": "Fire Camp" },
+            { "value": "rain", "label": "Midnight Rain" },
+            { "value": "aurora", "label": "Aurora Fjord" },
+            { "value": "ocean", "label": "Deep Reef" },
+            { "value": "zen", "label": "Zen Koi Pond" }
+          ]
+        }
+      ]
+    }
+  ]
+}
