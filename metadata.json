@@ -1,0 +1,6 @@
+{
+  "name": "Hearth & Horizon — MyPC Screensaver",
+  "description": "Ultra-optimized ambient screensaver suite for My PC (Tizen 8+ Smart TVs & Desktop) featuring volumetric fireplace, wilderness campfire, refractive rain, aurora fjord, and multi-channel open-source & acoustic soundscapes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
