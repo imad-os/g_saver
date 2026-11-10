@@ -25,14 +25,11 @@ import {
   Play,
   Check,
   Copy,
-  AlertTriangle,
-  CheckCircle2,
   Info,
   RefreshCw,
   Smartphone,
   LogIn,
   Sparkles,
-  Volume2,
 } from 'lucide-react';
 
 interface VideoSettingsTabProps {
@@ -41,6 +38,33 @@ interface VideoSettingsTabProps {
   onUpdateSettings: (next: ScreensaverSettings) => void;
 }
 
+const VERIFIED_PRESET_VIDEOS = [
+  {
+    id: 'preset_hearth_cc0',
+    title: 'Hearth Fireplace Loop',
+    uri: 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Fantastic-fireplace-fire-chimney-hearth-_background_-_texture_-_motion_graphics_-_free_video_library.webm',
+    type: 'hearth' as SceneId,
+    sizeBytes: 19112791,
+    badge: '18.2 MB · 1080p Loop',
+  },
+  {
+    id: 'preset_cinematic_cc0',
+    title: 'Stone Fireplace Logs',
+    uri: 'https://upload.wikimedia.org/wikipedia/commons/transcoded/0/04/Fireplace_1_2021-02-14.webm/Fireplace_1_2021-02-14.webm.720p.vp9.webm',
+    type: 'cinematic' as SceneId,
+    sizeBytes: 14500000,
+    badge: '14 MB · HD Loop',
+  },
+  {
+    id: 'preset_rain_cc0',
+    title: 'Raindrops on Window',
+    uri: 'https://upload.wikimedia.org/wikipedia/commons/transcoded/9/90/Radevormwald_-_Raindrops_on_a_window_11_%281%29_ies.webm/Radevormwald_-_Raindrops_on_a_window_11_%281%29_ies.webm.720p.vp9.webm',
+    type: 'rain' as SceneId,
+    sizeBytes: 18400000,
+    badge: '17.5 MB · HD Loop',
+  },
+];
+
 export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
   settings,
   lang,
@@ -48,15 +72,12 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
 }) => {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
-  // Form state for adding a new video
   const [newTitle, setNewTitle] = useState<string>('Fire 4K');
   const [newUri, setNewUri] = useState<string>('');
   const [newType, setNewType] = useState<SceneId>(settings.scene);
   const [newAudioMode, setNewAudioMode] = useState<VideoAudioMode>('both');
-  const [newSizeMb, setNewSizeMb] = useState<string>('48');
   const [copiedConfig, setCopiedConfig] = useState<boolean>(false);
 
-  // MyPC.drive state
   const [driveSupported, setDriveSupported] = useState<boolean>(false);
   const [driveStatus, setDriveStatus] = useState<MyPCDriveStatus | null>(null);
   const [driveFiles, setDriveFiles] = useState<MyPCDriveFile[]>([]);
@@ -90,7 +111,7 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
     try {
       const res = await mypc.drive.list({
         place: 'videos',
-        pageSize: 50,
+        pageSize: 40,
         search: searchQuery !== undefined ? searchQuery : driveSearch || undefined,
       });
       setDriveFiles(Array.isArray(res?.files) ? res.files : []);
@@ -135,12 +156,6 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
     const cleanUri = newUri.trim();
     if (!cleanUri) return;
 
-    const parsedMb = parseFloat(newSizeMb);
-    const sizeBytes =
-      Number.isFinite(parsedMb) && parsedMb > 0
-        ? Math.round(parsedMb * 1024 * 1024)
-        : undefined;
-
     const id = `vid_${Date.now().toString(36)}`;
     const newItem: ScreensaverVideoItem = {
       id,
@@ -153,8 +168,9 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
       playbackRate: 1.0,
       objectFit: 'cover',
       loop: true,
-      sizeBytes,
-      mimeType: 'video/mp4',
+      // Leave sizeBytes undefined until resolved from MyPC.drive.get so Range headers are 100% accurate
+      sizeBytes: undefined,
+      mimeType: cleanUri.toLowerCase().endsWith('.webm') ? 'video/webm' : 'video/mp4',
     };
 
     const nextVideos = [...settings.videos, newItem];
@@ -178,17 +194,18 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
     }
 
     const lower = (file.name || '').toLowerCase();
-    const guessedType: SceneId = lower.includes('camp')
-      ? 'campfire'
-      : lower.includes('rain') || lower.includes('storm')
-      ? 'rain'
-      : lower.includes('aurora') || lower.includes('arctic')
-      ? 'aurora'
-      : lower.includes('ocean') || lower.includes('reef') || lower.includes('sea')
-      ? 'ocean'
-      : lower.includes('zen') || lower.includes('koi')
-      ? 'zen'
-      : 'hearth';
+    const guessedType: SceneId =
+      lower.includes('cinematic') || lower.includes('stone')
+        ? 'cinematic'
+        : lower.includes('rain') || lower.includes('storm')
+        ? 'rain'
+        : lower.includes('aurora') || lower.includes('arctic')
+        ? 'aurora'
+        : lower.includes('ocean') || lower.includes('reef') || lower.includes('sea')
+        ? 'ocean'
+        : lower.includes('zen') || lower.includes('koi')
+        ? 'zen'
+        : 'hearth';
 
     const numSize = Number(file.size);
     const resLabel =
@@ -249,51 +266,24 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
     onUpdateSettings(nextSettings);
   };
 
-  // Evaluate preview size notice for the Add Video input
-  const previewMb = parseFloat(newSizeMb);
-  const previewNotice = evaluateVideoSizeNotice(
-    Number.isFinite(previewMb) && previewMb > 0 ? previewMb * 1024 * 1024 : undefined
-  );
-
-  // Build app_config JSON snippet matching the user's exact specification
   const activeOrFirstVideo =
     settings.videos.find((v) => v.id === settings.activeVideoId) || settings.videos[0];
 
   const appConfigSnippet = JSON.stringify(
     {
-      videos:
-        settings.videos.length === 1 && activeOrFirstVideo
-          ? {
-              uri: activeOrFirstVideo.uri,
-              title: activeOrFirstVideo.title,
-              type: activeOrFirstVideo.type,
-              audioMode: activeOrFirstVideo.audioMode,
-              videoVolume: activeOrFirstVideo.videoVolume,
-              playbackRate: activeOrFirstVideo.playbackRate,
-              sizeMb: activeOrFirstVideo.sizeBytes
-                ? Math.round(activeOrFirstVideo.sizeBytes / (1024 * 1024))
-                : 48,
-            }
-          : settings.videos.length > 1
-          ? settings.videos.map((v) => ({
-              id: v.id,
-              uri: v.uri,
-              title: v.title,
-              type: v.type,
-              audioMode: v.audioMode,
-              videoVolume: v.videoVolume,
-              playbackRate: v.playbackRate,
-              sizeMb: v.sizeBytes ? Math.round(v.sizeBytes / (1024 * 1024)) : undefined,
-            }))
-          : {
-              uri: 'drive://YOUR_GOOGLE_DRIVE_FILE_ID',
-              title: 'fire 4k',
-              type: 'hearth',
-              audioMode: 'both',
-              videoVolume: 0.85,
-              playbackRate: 1.0,
-              sizeMb: 48,
-            },
+      videos: activeOrFirstVideo
+        ? {
+            uri: activeOrFirstVideo.uri,
+            title: activeOrFirstVideo.title,
+            type: activeOrFirstVideo.type,
+            audioMode: activeOrFirstVideo.audioMode,
+          }
+        : {
+            uri: 'drive://YOUR_GOOGLE_DRIVE_FILE_ID',
+            title: 'fire 4k',
+            type: 'hearth',
+            audioMode: 'both',
+          },
     },
     null,
     2
@@ -310,258 +300,215 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* 1. Prominent Video Size & Smart TV Hardware Notice Banner */}
-      <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-4 md:p-5 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 text-amber-300 font-semibold text-sm md:text-base">
-            <Info className="w-5 h-5 text-amber-400 shrink-0" />
-            <span>Smart TV Video Size Notice &amp; MyPC Drive Streaming Guidelines</span>
-          </div>
-          <span className="text-xs font-mono px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            sw.js · 2 MB Range Chunks Enabled
+    <div className="space-y-4">
+      {/* Compact 1-Line Smart TV Video Size Notice */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/35 rounded-xl px-4 py-3 text-xs text-stone-200">
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>
+            <strong className="text-amber-300">Smart TV Video Size Notice:</strong> Select MP4/WebM
+            loops under <strong>80 MB</strong> (15–65 MB ideal) so videos cache in TV RAM for
+            continuous multi-hour playback without network stalls.
           </span>
         </div>
+        {settings.activeVideoId && (
+          <button
+            type="button"
+            onClick={() => onUpdateSettings(applyVideoPreset(settings, null))}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500 text-stone-950 shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Stop Video (Use Built-In Fireplace)</span>
+          </button>
+        )}
+      </div>
 
-        <p className="text-xs md:text-sm text-stone-300 leading-relaxed">
-          When selecting a 4K or 1080p video from <strong>MyPC Google Drive</strong> (or configuring{' '}
-          <code className="text-amber-300">videos</code> in <code className="text-amber-300">MyPC.app_config</code>),
-          please choose a file size suited for Samsung Tizen Smart TV memory and Wi-Fi bandwidth:
-        </p>
+      {/* 1-Click Verified Ambient Video Loops */}
+      <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-2.5">
+        <div className="text-xs font-semibold text-amber-300 flex items-center gap-2">
+          <Sparkles className="w-4 h-4" />
+          <span>Quick-Start Ambient Video Loops (1-Click TV Remote Ready)</span>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-          <div className="p-3 rounded-lg bg-stone-950/90 border border-emerald-500/40">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 mb-1">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>15 MB – 65 MB (Optimal for TV)</span>
-            </div>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
-              Ideal for seamless 20–60s H.264/HEVC 4K/1080p loops. Starts immediately with minimal TV RAM usage.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-stone-950/90 border border-amber-500/40">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 mb-1">
-              <HardDrive className="w-4 h-4" />
-              <span>65 MB – 180 MB (Range Stream)</span>
-            </div>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
-              Streams piece-by-piece in 2 MB Range chunks via <code className="text-stone-300">sw.js</code>. If Service Workers are unavailable, the full file buffers in RAM first.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-stone-950/90 border border-rose-500/40">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-400 mb-1">
-              <AlertTriangle className="w-4 h-4" />
-              <span>Over 180 MB (Large File Warning)</span>
-            </div>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
-              Not recommended on low-memory TVs. May cause long initial buffering or out-of-memory pauses in blob fallback mode.
-            </p>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {VERIFIED_PRESET_VIDEOS.map((preset) => {
+            const isCurrent = settings.activeVideoId === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => {
+                  const existing = settings.videos.find((v) => v.id === preset.id);
+                  if (existing) {
+                    const patched = settings.videos.map((v) =>
+                      v.id === preset.id ? { ...v, uri: preset.uri } : v
+                    );
+                    onUpdateSettings(
+                      applyVideoPreset(
+                        { ...settings, videos: patched },
+                        isCurrent ? null : existing.id
+                      )
+                    );
+                    return;
+                  }
+                  const item: ScreensaverVideoItem = {
+                    id: preset.id,
+                    uri: preset.uri,
+                    title: preset.title,
+                    type: preset.type,
+                    audioMode: 'both',
+                    videoVolume: 0.85,
+                    overlayEffects: false,
+                    playbackRate: 1.0,
+                    objectFit: 'cover',
+                    loop: true,
+                    sizeBytes: preset.sizeBytes,
+                    mimeType: 'video/webm',
+                  };
+                  onUpdateSettings(
+                    applyVideoPreset(
+                      { ...settings, videos: [...settings.videos, item] },
+                      item.id
+                    )
+                  );
+                }}
+                className={`text-left p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                  isCurrent
+                    ? 'bg-amber-500 text-stone-950 border-amber-300 font-semibold'
+                    : 'bg-stone-950/90 hover:bg-stone-800 text-stone-200 border-stone-800'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold truncate">{preset.title}</div>
+                  <div
+                    className={`text-[11px] font-mono ${
+                      isCurrent ? 'text-stone-900' : 'text-emerald-400'
+                    }`}
+                  >
+                    {preset.badge}
+                  </div>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 ${
+                    isCurrent ? 'bg-stone-950 text-amber-400' : 'bg-stone-800 text-amber-300'
+                  }`}
+                >
+                  {isCurrent ? 'Playing' : 'Play'}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* 2. Configured Videos List & Playback Switcher */}
-      <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm md:text-base font-semibold text-stone-100 flex items-center gap-2">
-              <Film className="w-4 h-4 text-amber-400" />
-              <span>Configured Screensaver Videos ({settings.videos.length})</span>
-            </h3>
-            <p className="text-xs text-stone-400">
-              Loaded from <code className="text-amber-300">MyPC.app_config.videos</code>, MyPC Drive, or custom URIs.
-            </p>
+      {/* Saved Videos List (if any) */}
+      {settings.videos.length > 0 && (
+        <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-2.5">
+          <div className="text-xs font-semibold text-stone-200 flex items-center gap-2">
+            <Film className="w-4 h-4 text-amber-400" />
+            <span>Saved Videos ({settings.videos.length})</span>
           </div>
-
-          {settings.activeVideoId && (
-            <button
-              type="button"
-              onClick={() => onUpdateSettings(applyVideoPreset(settings, null))}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-500/40"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Switch Back to Built-in 8K Optical Scene</span>
-            </button>
-          )}
-        </div>
-
-        {settings.videos.length === 0 ? (
-          <div className="p-6 rounded-xl bg-stone-950/70 border border-stone-800/80 text-center space-y-2">
-            <div className="text-sm font-medium text-stone-300">
-              No custom videos configured yet
-            </div>
-            <p className="text-xs text-stone-400 max-w-xl mx-auto">
-              Add a video below using a <strong>MyPC Google Drive URI</strong> (<code className="text-amber-300">drive://FILE_ID</code>), browse your signed-in MyPC Drive videos, or define <code className="text-amber-300">videos</code> in <code className="text-amber-300">MyPC.app_config</code>.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {settings.videos.map((vid) => {
               const isActive = settings.activeVideoId === vid.id;
               const notice = evaluateVideoSizeNotice(vid.sizeBytes);
-              const parsedUri = parseVideoUri(vid.uri);
-
               return (
                 <div
                   key={vid.id}
-                  className={`p-4 rounded-xl border transition-all space-y-3 ${
+                  className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 ${
                     isActive
-                      ? 'bg-stone-800/95 border-amber-400 ring-2 ring-amber-400/40'
-                      : 'bg-stone-950/80 border-stone-800 hover:border-stone-700'
+                      ? 'bg-stone-800/95 border-amber-400'
+                      : 'bg-stone-950/80 border-stone-800'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-base font-semibold text-stone-100 truncate">
-                          {vid.title}
-                        </span>
-                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-stone-800 text-amber-300 border border-stone-700">
-                          {t.scenes[vid.type]?.badge || vid.type}
-                        </span>
-                        <span
-                          className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
-                            notice.tier === 'optimal'
-                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                              : notice.tier === 'moderate'
-                              ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
-                              : notice.tier === 'large'
-                              ? 'bg-rose-500/15 text-rose-300 border-rose-500/40'
-                              : 'bg-stone-800 text-stone-400 border-stone-700'
-                          }`}
-                        >
-                          {notice.badgeText}
-                        </span>
+                      <div className="text-xs md:text-sm font-semibold text-stone-100 truncate">
+                        {vid.title}
                       </div>
-                      <div className="text-[11px] font-mono text-stone-400 truncate mt-1">
-                        {parsedUri.source === 'drive'
-                          ? `MyPC Drive ID: ${parsedUri.driveFileId}`
-                          : vid.uri}
+                      <div className="text-[11px] font-mono text-stone-400 truncate">
+                        {notice.badgeText} · {t.scenes[vid.type]?.badge || vid.type}
                       </div>
                     </div>
-
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() =>
                           onUpdateSettings(applyVideoPreset(settings, isActive ? null : vid.id))
                         }
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
                           isActive
                             ? 'bg-amber-500 text-stone-950'
                             : 'bg-stone-800 hover:bg-stone-700 text-stone-200'
                         }`}
                       >
-                        <Play className="w-3.5 h-3.5" />
-                        <span>{isActive ? 'Playing' : 'Play Video'}</span>
+                        <Play className="w-3 h-3" />
+                        <span>{isActive ? 'Playing' : 'Play'}</span>
                       </button>
-
                       <button
                         type="button"
                         onClick={() => handleRemoveVideo(vid.id)}
                         aria-label={`Remove ${vid.title}`}
                         className="p-1.5 rounded-lg bg-stone-900 hover:bg-rose-500/20 text-stone-400 hover:text-rose-300 border border-stone-800"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
 
-                  {/* Per-Video Specific Settings (Type, Audio Mode, Speed) */}
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-800/80 text-xs">
-                    <div>
-                      <label className="block text-[11px] text-stone-400 mb-1">
-                        Style / Sound Preset
-                      </label>
-                      <select
-                        value={vid.type}
-                        onChange={(e) =>
-                          handleUpdateVideoItem(vid.id, { type: e.target.value as SceneId })
-                        }
-                        className="w-full bg-stone-900 border border-stone-700 rounded-lg px-2 py-1.5 text-xs text-stone-200"
-                      >
-                        {SCENE_IDS.map((sc) => (
-                          <option key={sc} value={sc}>
-                            {t.scenes[sc].badge}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-stone-400 mb-1">
-                        Audio Track Mode
-                      </label>
-                      <select
-                        value={vid.audioMode}
-                        onChange={(e) =>
-                          handleUpdateVideoItem(vid.id, {
-                            audioMode: e.target.value as VideoAudioMode,
-                          })
-                        }
-                        className="w-full bg-stone-900 border border-stone-700 rounded-lg px-2 py-1.5 text-xs text-stone-200"
-                      >
-                        <option value="both">Video + Acoustic Mix</option>
-                        <option value="soundscape">Acoustic Mix Only</option>
-                        <option value="video">Video Audio Only</option>
-                        <option value="mute">Muted</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-stone-400 mb-1">
-                        Playback Speed
-                      </label>
-                      <select
-                        value={String(vid.playbackRate)}
-                        onChange={(e) =>
-                          handleUpdateVideoItem(vid.id, {
-                            playbackRate: parseFloat(e.target.value),
-                          })
-                        }
-                        className="w-full bg-stone-900 border border-stone-700 rounded-lg px-2 py-1.5 text-xs text-stone-200"
-                      >
-                        <option value="0.5">0.5x Slow Ambient</option>
-                        <option value="0.75">0.75x Relaxed</option>
-                        <option value="1">1.0x Normal</option>
-                        <option value="1.25">1.25x Brisk</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Size Notice Footnote */}
-                  <div className="text-[11px] text-stone-400 flex items-center gap-1.5">
-                    <Volume2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className="truncate">{notice.noticeText}</span>
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-stone-800/80 text-xs">
+                    <select
+                      aria-label={`${vid.title} scene style`}
+                      value={vid.type}
+                      onChange={(e) =>
+                        handleUpdateVideoItem(vid.id, { type: e.target.value as SceneId })
+                      }
+                      className="bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-xs text-stone-200"
+                    >
+                      {SCENE_IDS.map((sc) => (
+                        <option key={sc} value={sc}>
+                          {t.scenes[sc].badge}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={`${vid.title} audio mode`}
+                      value={vid.audioMode}
+                      onChange={(e) =>
+                        handleUpdateVideoItem(vid.id, {
+                          audioMode: e.target.value as VideoAudioMode,
+                        })
+                      }
+                      className="bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-xs text-stone-200"
+                    >
+                      <option value="both">Video + Acoustic Sound</option>
+                      <option value="soundscape">Acoustic Sound Only</option>
+                      <option value="video">Video Audio Only</option>
+                      <option value="mute">Muted</option>
+                    </select>
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* 3. Add Video by MyPC Drive URI / Config Form + Live MyPC Drive Picker */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Add Video Entry (URI, Title, Type, Audio Mode, Size Notice) */}
+      {/* Add Video + MyPC Google Drive Browser */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <form
           onSubmit={handleAddCustomVideo}
-          className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4"
+          className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3"
         >
-          <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
+          <div className="flex items-center gap-2 text-amber-400 font-semibold text-xs md:text-sm">
             <Plus className="w-4 h-4" />
-            <span>Add Video (MyPC Drive URI or Direct MP4/WebM)</span>
+            <span>Add Video (MyPC Drive ID or Direct URL)</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
-              <label
-                htmlFor="video-title-input"
-                className="block text-xs text-stone-300 font-medium mb-1"
-              >
-                Video Title (<code className="text-amber-300">title</code>)
+              <label htmlFor="video-title-input" className="block text-xs text-stone-400 mb-1">
+                Title
               </label>
               <input
                 id="video-title-input"
@@ -569,26 +516,23 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="fire 4k"
-                className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-xs md:text-sm text-stone-100 focus:outline-none focus:border-amber-400"
+                className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-1.5 text-xs text-stone-100"
               />
             </div>
 
             <div>
-              <label
-                htmlFor="video-type-select"
-                className="block text-xs text-stone-300 font-medium mb-1"
-              >
-                Scene Style (<code className="text-amber-300">type</code>)
+              <label htmlFor="video-type-select" className="block text-xs text-stone-400 mb-1">
+                Sound Preset
               </label>
               <select
                 id="video-type-select"
                 value={newType}
                 onChange={(e) => setNewType(e.target.value as SceneId)}
-                className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-xs md:text-sm text-stone-100 focus:outline-none focus:border-amber-400"
+                className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-1.5 text-xs text-stone-100"
               >
                 {SCENE_IDS.map((sc) => (
                   <option key={sc} value={sc}>
-                    {t.scenes[sc].name} ({sc})
+                    {t.scenes[sc].badge}
                   </option>
                 ))}
               </select>
@@ -596,118 +540,69 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
           </div>
 
           <div>
-            <label
-              htmlFor="video-uri-input"
-              className="block text-xs text-stone-300 font-medium mb-1"
-            >
-              MyPC Drive URI / File ID or Video URL (<code className="text-amber-300">uri</code>)
+            <label htmlFor="video-uri-input" className="block text-xs text-stone-400 mb-1">
+              MyPC Drive URI (<code className="text-amber-300">drive://FILE_ID</code>) or Video URL
             </label>
             <input
               id="video-uri-input"
               type="text"
               value={newUri}
               onChange={(e) => setNewUri(e.target.value)}
-              placeholder="drive://1AbCdEfGhIjKlMnOpQrStUvWxYz or https://.../fire4k.mp4"
-              className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-xs md:text-sm font-mono text-stone-100 focus:outline-none focus:border-amber-400"
+              placeholder="drive://1AbCdEf... or https://.../fire.mp4"
+              className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-1.5 text-xs font-mono text-stone-100"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label
-                htmlFor="video-audio-select"
-                className="block text-xs text-stone-300 font-medium mb-1"
-              >
-                Audio Mode (<code className="text-amber-300">audioMode</code>)
-              </label>
-              <select
-                id="video-audio-select"
-                value={newAudioMode}
-                onChange={(e) => setNewAudioMode(e.target.value as VideoAudioMode)}
-                className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-xs md:text-sm text-stone-100 focus:outline-none focus:border-amber-400"
-              >
-                <option value="both">Video Audio + Acoustic Soundscape</option>
-                <option value="soundscape">6-Channel Acoustic Soundscape Only</option>
-                <option value="video">Video Embedded Audio Only</option>
-                <option value="mute">Silent / Muted</option>
-              </select>
-            </div>
+          <div className="flex items-center gap-2">
+            <select
+              id="video-audio-select"
+              aria-label="Audio Mode"
+              value={newAudioMode}
+              onChange={(e) => setNewAudioMode(e.target.value as VideoAudioMode)}
+              className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-2 text-xs text-stone-100"
+            >
+              <option value="both">Video + Acoustic Mix</option>
+              <option value="soundscape">Acoustic Mix Only</option>
+              <option value="video">Video Audio Only</option>
+              <option value="mute">Muted</option>
+            </select>
 
-            <div>
-              <label
-                htmlFor="video-size-input"
-                className="block text-xs text-stone-300 font-medium mb-1"
-              >
-                Estimated File Size (MB) — Size Check
-              </label>
-              <input
-                id="video-size-input"
-                type="number"
-                min="1"
-                max="2000"
-                value={newSizeMb}
-                onChange={(e) => setNewSizeMb(e.target.value)}
-                placeholder="48"
-                className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-xs md:text-sm font-mono text-stone-100 focus:outline-none focus:border-amber-400"
-              />
-            </div>
+            <button
+              type="submit"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add &amp; Play Video</span>
+            </button>
           </div>
-
-          {/* Live File Size Evaluation Notice Box */}
-          <div
-            className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
-              previewNotice.tier === 'optimal'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
-                : previewNotice.tier === 'moderate'
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                : previewNotice.tier === 'large'
-                ? 'bg-rose-500/15 border-rose-500/40 text-rose-200'
-                : 'bg-stone-950 border-stone-800 text-stone-300'
-            }`}
-          >
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold">{previewNotice.badgeText}: </span>
-              <span>{previewNotice.noticeText}</span>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs md:text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add &amp; Play Video Screensaver</span>
-          </button>
         </form>
 
-        {/* Right: Browse Videos directly from MyPC Google Drive (MyPC.drive API Level 14) */}
-        <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-sky-400 font-semibold text-sm">
+        {/* MyPC Google Drive Video Picker & Compact Config Snippet */}
+        <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 flex flex-col justify-between space-y-3">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sky-400 font-semibold text-xs md:text-sm">
                 <HardDrive className="w-4 h-4" />
-                <span>MyPC Google Drive Video Browser (MyPC.drive)</span>
+                <span>MyPC Google Drive Videos</span>
               </div>
-
               {driveStatus?.signedIn && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   {driveStatus.picker && (
                     <button
                       type="button"
                       onClick={handleDriveAddFilesFromPhone}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30"
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] bg-sky-500/20 text-sky-300 border border-sky-500/30"
                     >
-                      <Smartphone className="w-3.5 h-3.5" />
-                      <span>Add from Phone</span>
+                      <Smartphone className="w-3 h-3" />
+                      <span>Phone</span>
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => loadDriveVideos()}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-stone-800 hover:bg-stone-700 text-stone-200"
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] bg-stone-800 text-stone-200"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${driveLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3 h-3 ${driveLoading ? 'animate-spin' : ''}`} />
                     <span>Refresh</span>
                   </button>
                 </div>
@@ -715,132 +610,89 @@ export const VideoSettingsTab: React.FC<VideoSettingsTabProps> = ({
             </div>
 
             {!driveSupported || !driveStatus?.configured ? (
-              <div className="p-4 rounded-xl bg-stone-950/90 border border-stone-800 text-xs text-stone-300 space-y-2">
-                <div className="font-semibold text-stone-200">
-                  MyPC Google Drive Bridge (API Level 14)
-                </div>
-                <p className="text-stone-400 leading-relaxed">
-                  Inside MyPC on your TV or browser, sign in once under{' '}
-                  <strong>Control Panel &gt; Google Drive</strong>. Your Drive videos will appear here
-                  automatically with their file sizes and can also be referenced in{' '}
-                  <code className="text-amber-300">MyPC.app_config</code> via{' '}
-                  <code className="text-amber-300">&quot;uri&quot;: &quot;drive://FILE_ID&quot;</code>.
-                </p>
-              </div>
+              <p className="text-xs text-stone-400 bg-stone-950/80 p-3 rounded-lg border border-stone-800">
+                Sign in under <strong>MyPC Control Panel &gt; Google Drive</strong> to browse your
+                Drive videos directly, or paste a <code className="text-amber-300">drive://ID</code>{' '}
+                URI on the left.
+              </p>
             ) : !driveStatus.signedIn ? (
-              <div className="p-5 rounded-xl bg-stone-950/90 border border-stone-800 text-center space-y-3">
-                <div className="text-sm font-semibold text-stone-200">
-                  Sign in to MyPC Google Drive
-                </div>
-                <p className="text-xs text-stone-400">
-                  Browse your 4K fireplace, campfire, and rain videos stored in Google Drive and stream them in 2 MB chunks via <code className="text-amber-300">sw.js</code>.
-                </p>
+              <div className="flex items-center justify-between gap-2 bg-stone-950/80 p-3 rounded-lg border border-stone-800">
+                <span className="text-xs text-stone-300">Sign in to browse Google Drive videos</span>
                 <button
                   type="button"
                   onClick={handleDriveSignIn}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-stone-950"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-500 text-stone-950"
                 >
-                  <LogIn className="w-4 h-4" />
-                  <span>Sign in with MyPC Drive</span>
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="flex gap-2">
+              <div className="space-y-2">
+                <div className="flex gap-1.5">
                   <input
                     type="text"
                     value={driveSearch}
                     onChange={(e) => setDriveSearch(e.target.value)}
-                    placeholder="Filter Drive videos (e.g. fire 4k)..."
-                    className="flex-1 bg-stone-950 border border-stone-700 rounded-lg px-3 py-1.5 text-xs text-stone-100"
+                    placeholder="Filter Drive videos..."
+                    className="flex-1 bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1 text-xs text-stone-100"
                   />
                   <button
                     type="button"
                     onClick={() => loadDriveVideos(driveSearch)}
-                    className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs font-medium text-stone-200"
+                    className="px-2.5 py-1 rounded-lg bg-stone-800 text-xs text-stone-200"
                   >
                     Search
                   </button>
                 </div>
-
-                {driveError && (
-                  <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 p-2.5 rounded-lg">
-                    {driveError}
-                  </div>
-                )}
-
-                <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
-                  {driveFiles.length === 0 && !driveLoading ? (
-                    <div className="text-xs text-stone-400 p-4 text-center bg-stone-950/60 rounded-lg border border-stone-800">
-                      No video files found in MyPC Drive. Upload an MP4/WebM video (recommended &lt; 80 MB) to your Google Drive.
-                    </div>
-                  ) : (
-                    driveFiles.map((file) => {
-                      const fNotice = evaluateVideoSizeNotice(Number(file.size));
-                      return (
-                        <div
-                          key={file.id}
-                          className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-stone-950 border border-stone-800 hover:border-stone-700"
-                        >
-                          <div className="min-w-0">
-                            <div className="text-xs font-semibold text-stone-200 truncate">
-                              {file.name}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span
-                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                                  fNotice.tier === 'optimal'
-                                    ? 'bg-emerald-500/20 text-emerald-300'
-                                    : fNotice.tier === 'moderate'
-                                    ? 'bg-amber-500/20 text-amber-300'
-                                    : 'bg-rose-500/20 text-rose-300'
-                                }`}
-                              >
-                                {fNotice.badgeText}
-                              </span>
-                              <span className="text-[10px] font-mono text-stone-500 truncate">
-                                ID: {file.id}
-                              </span>
-                            </div>
+                {driveError && <div className="text-xs text-rose-400">{driveError}</div>}
+                <div className="max-h-36 overflow-y-auto space-y-1.5">
+                  {driveFiles.map((file) => {
+                    const fNotice = evaluateVideoSizeNotice(Number(file.size));
+                    return (
+                      <div
+                        key={file.id}
+                        className="flex items-center justify-between gap-2 p-2 rounded-lg bg-stone-950 border border-stone-800"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-stone-200 truncate">
+                            {file.name}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handlePickDriveFile(file)}
-                            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-semibold shrink-0"
-                          >
-                            Select
-                          </button>
+                          <div className="text-[10px] font-mono text-stone-400">
+                            {fNotice.badgeText}
+                          </div>
                         </div>
-                      );
-                    })
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => handlePickDriveFile(file)}
+                          className="px-2.5 py-1 rounded bg-amber-500 text-stone-950 text-xs font-semibold shrink-0"
+                        >
+                          Play
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
 
-          {/* App Config JSON Generator for `videos` */}
-          <div className="pt-3 border-t border-stone-800 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-stone-200">
-                <code className="text-amber-300">MyPC.app_config</code> JSON (<code className="text-amber-300">videos</code>)
-              </span>
-              <button
-                type="button"
-                onClick={copyConfigJson}
-                className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300"
-              >
-                {copiedConfig ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-                <span>{copiedConfig ? 'Copied JSON' : 'Copy Config'}</span>
-              </button>
-            </div>
-            <pre className="text-[11px] font-mono text-stone-300 bg-stone-950 p-3 rounded-lg border border-stone-800 overflow-x-auto max-h-36">
-              {appConfigSnippet}
-            </pre>
+          <div className="pt-2 border-t border-stone-800 flex items-center justify-between gap-2">
+            <code className="text-[11px] font-mono text-stone-400 truncate">
+              {appConfigSnippet.replace(/\s+/g, ' ')}
+            </code>
+            <button
+              type="button"
+              onClick={copyConfigJson}
+              className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 shrink-0"
+            >
+              {copiedConfig ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              <span>{copiedConfig ? 'Copied' : 'Copy JSON'}</span>
+            </button>
           </div>
         </div>
       </div>

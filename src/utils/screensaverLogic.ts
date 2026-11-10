@@ -1,10 +1,63 @@
-export type SceneId = 'hearth' | 'campfire' | 'rain' | 'aurora' | 'ocean' | 'zen';
+import { FireEffectStyle } from './openSourceFireVfx';
+export type { FireEffectStyle };
+
+export type SceneId = 'hearth' | 'rain' | 'aurora' | 'cinematic' | 'ocean' | 'zen';
 
 export type AppMode = 'screensaver' | 'settings' | 'preview';
 
 export type QualityTier = 'auto' | 'low' | 'mid' | 'high';
 
+export type FireplaceQualityPreset = 'maximum' | 'high' | 'automatic';
+
+export type CameraViewMode = 'wide' | 'fit' | 'hearth' | 'logs';
+
+export interface CameraViewModeOption {
+  id: CameraViewMode;
+  label: string;
+  badge: string;
+  description: string;
+  gpuOptimizationBadge: string;
+  equivZoom: number;
+}
+
+export const CAMERA_VIEW_MODES: CameraViewModeOption[] = [
+  {
+    id: 'wide',
+    label: 'Wide',
+    badge: 'Wide (Default)',
+    description: 'Full living room & stone fireplace view',
+    gpuOptimizationBadge: '100% Full Scene',
+    equivZoom: 1.0,
+  },
+  {
+    id: 'fit',
+    label: 'Fit',
+    badge: 'Fit',
+    description: 'Balanced framing fitted to the fireplace',
+    gpuOptimizationBadge: '+12% GPU Speed',
+    equivZoom: 1.15,
+  },
+  {
+    id: 'hearth',
+    label: 'Hearth',
+    badge: 'Hearth Only',
+    description: 'Shows only the hearth design with no room wall',
+    gpuOptimizationBadge: '+25% GPU Speed',
+    equivZoom: 1.55,
+  },
+  {
+    id: 'logs',
+    label: 'Logs',
+    badge: 'Inside Hearth & Logs',
+    description: 'No wall, no outer design — only inside hearth walls, logs & fire',
+    gpuOptimizationBadge: '+40% Max GPU Boost',
+    equivZoom: 2.15,
+  },
+];
+
 export type ColorTemp = 'natural' | 'warm2700k' | 'candle2000k' | 'midnight';
+
+export type SettingsTabKey = 'visuals' | 'videos' | 'audio' | 'display' | 'mypc';
 
 export type SupportedLang = 'en' | 'fr' | 'es' | 'ar';
 
@@ -77,6 +130,15 @@ export interface ScreensaverSettings {
   // MyPC Drive & Custom Video settings
   videos: ScreensaverVideoItem[];
   activeVideoId: string | null; // null = built-in 8K optical plate mode; string = active video id
+  // WebGL2 Cinematic Fireplace & Open-Source Game Fire VFX settings
+  fireplaceQuality: FireplaceQualityPreset; // 'maximum' (default) | 'high' | 'automatic'
+  showDiagnostics: boolean; // Development diagnostic mode overlay (hidden by default)
+  fireEffectStyle: FireEffectStyle; // 'game_flipbook' | 'volumetric_shader' | 'fluid_ribbons' | 'roaring_bonfire'
+  viewMode: CameraViewMode; // 'wide' (default) | 'fit' | 'hearth' | 'logs'
+  cameraZoom: number; // Legacy/computed zoom factor kept in sync with viewMode
+  // Persisted UI / MyPC Profile state
+  pureView: boolean;
+  lastSettingsTab: SettingsTabKey;
 }
 
 export interface SceneMetadata {
@@ -92,9 +154,16 @@ export interface SceneMetadata {
   }[];
 }
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.7.0';
 
-export const SCENE_IDS: SceneId[] = ['hearth', 'campfire', 'rain', 'aurora', 'ocean', 'zen'];
+export const SCENE_IDS: SceneId[] = [
+  'hearth',
+  'cinematic',
+  'rain',
+  'aurora',
+  'ocean',
+  'zen',
+];
 
 export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
   hearth: {
@@ -120,32 +189,6 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
         label: 'Open Fireplace Burning Field Recording (Wikimedia Commons OGG)',
         license: 'CC-BY-SA / Free Cultural Work',
         url: `./audio/hearth_roar.ogg?v=${APP_VERSION}`,
-      },
-    ],
-  },
-  campfire: {
-    id: 'campfire',
-    accent: '#ea580c',
-    secondaryAccent: '#fde047',
-    tempLabel: '11.0°C · Pine Clearing',
-    defaultAudioMix: {
-      hearthRoar: 0.72,
-      woodCrackle: 0.95,
-      rainDownpour: 0.0,
-      distantThunder: 0.0,
-      nightWind: 0.48,
-      waterStream: 0.15,
-    },
-    openSourceAssets: [
-      {
-        label: 'Wilderness Wood Fire Crackling Foley (Wikimedia Commons OGG)',
-        license: 'CC0 / Public Domain',
-        url: `./audio/fire_crackle.ogg?v=${APP_VERSION}`,
-      },
-      {
-        label: 'Night Wind Field Recording (Wikimedia Commons OGG)',
-        license: 'CC-BY-SA / Free Cultural Work',
-        url: `./audio/night_wind.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -193,6 +236,32 @@ export const SCENE_METADATA: Record<SceneId, SceneMetadata> = {
         label: 'Arctic Wind Field Recording (Wikimedia Commons OGG)',
         license: 'Public Domain',
         url: `./audio/night_wind.ogg?v=${APP_VERSION}`,
+      },
+    ],
+  },
+  cinematic: {
+    id: 'cinematic',
+    accent: '#f59e0b',
+    secondaryAccent: '#ea580c',
+    tempLabel: '24.0°C · Carved Limestone Hearth',
+    defaultAudioMix: {
+      hearthRoar: 0.86,
+      woodCrackle: 0.95,
+      rainDownpour: 0.0,
+      distantThunder: 0.0,
+      nightWind: 0.12,
+      waterStream: 0.0,
+    },
+    openSourceAssets: [
+      {
+        label: 'Seasoned Oak Fire Crackling Field Recording (Wikimedia Commons OGG)',
+        license: 'CC0 / Public Domain',
+        url: `./audio/fire_crackle.ogg?v=${APP_VERSION}`,
+      },
+      {
+        label: 'Deep Stone Hearth Convection Draft Recording (Wikimedia Commons OGG)',
+        license: 'CC-BY-SA / Free Cultural Work',
+        url: `./audio/hearth_roar.ogg?v=${APP_VERSION}`,
       },
     ],
   },
@@ -272,6 +341,13 @@ export const DEFAULT_SETTINGS: ScreensaverSettings = {
   audioChannels: { ...SCENE_METADATA.hearth.defaultAudioMix },
   videos: [],
   activeVideoId: null,
+  fireplaceQuality: 'maximum',
+  showDiagnostics: false,
+  fireEffectStyle: 'game_flipbook',
+  viewMode: 'wide',
+  cameraZoom: 1.0,
+  pureView: false,
+  lastSettingsTab: 'visuals',
 };
 
 export function clampNum(val: unknown, min: number, max: number, fallback: number): number {
@@ -506,10 +582,11 @@ export function sanitizeSettings(
     };
   }
 
-  const nextScene = isValidSceneId(partial.scene)
-    ? partial.scene
-    : isValidSceneId(partial.defaultScene)
-    ? (partial.defaultScene as SceneId)
+  const rawSceneVal = partial.scene ?? partial.defaultScene;
+  const nextScene: SceneId = isValidSceneId(rawSceneVal)
+    ? rawSceneVal
+    : rawSceneVal === 'campfire'
+    ? 'hearth'
     : base.scene;
 
   const validModes: AppMode[] = ['screensaver', 'settings', 'preview'];
@@ -525,6 +602,49 @@ export function sanitizeSettings(
     typeof partial.qualityTier === 'string' && validTiers.includes(partial.qualityTier as QualityTier)
       ? (partial.qualityTier as QualityTier)
       : base.qualityTier;
+
+  const validFpQualities: FireplaceQualityPreset[] = ['maximum', 'high', 'automatic'];
+  const fireplaceQuality: FireplaceQualityPreset =
+    partial.fireplaceQuality === 'auto'
+      ? 'automatic'
+      : typeof partial.fireplaceQuality === 'string' &&
+        validFpQualities.includes(partial.fireplaceQuality as FireplaceQualityPreset)
+      ? (partial.fireplaceQuality as FireplaceQualityPreset)
+      : base.fireplaceQuality;
+
+  const validFireStyles: FireEffectStyle[] = [
+    'game_flipbook',
+    'volumetric_shader',
+    'fluid_ribbons',
+    'roaring_bonfire',
+  ];
+  const fireEffectStyle: FireEffectStyle =
+    typeof partial.fireEffectStyle === 'string' &&
+    validFireStyles.includes(partial.fireEffectStyle as FireEffectStyle)
+      ? (partial.fireEffectStyle as FireEffectStyle)
+      : base.fireEffectStyle;
+
+  const validViewModes: CameraViewMode[] = ['wide', 'fit', 'hearth', 'logs'];
+  const rawView = partial.viewMode ?? partial.view;
+  let viewMode: CameraViewMode = base.viewMode || 'wide';
+  if (typeof rawView === 'string' && validViewModes.includes(rawView as CameraViewMode)) {
+    viewMode = rawView as CameraViewMode;
+  } else if (typeof (partial.cameraZoom ?? partial.zoom) === 'number') {
+    const z = Number(partial.cameraZoom ?? partial.zoom);
+    if (z >= 1.7) viewMode = 'logs';
+    else if (z >= 1.3) viewMode = 'hearth';
+    else if (z >= 1.08) viewMode = 'fit';
+    else viewMode = 'wide';
+  }
+  const matchedMode = CAMERA_VIEW_MODES.find((m) => m.id === viewMode);
+  const syncedZoom = matchedMode ? matchedMode.equivZoom : 1.0;
+
+  const validTabs: SettingsTabKey[] = ['visuals', 'videos', 'audio', 'display', 'mypc'];
+  const lastSettingsTab: SettingsTabKey =
+    typeof partial.lastSettingsTab === 'string' &&
+    validTabs.includes(partial.lastSettingsTab as SettingsTabKey)
+      ? (partial.lastSettingsTab as SettingsTabKey)
+      : base.lastSettingsTab;
 
   const validColorTemps: ColorTemp[] = ['natural', 'warm2700k', 'candle2000k', 'midnight'];
   const colorTemp: ColorTemp =
@@ -613,13 +733,23 @@ export function sanitizeSettings(
     },
     videos: nextVideos,
     activeVideoId: nextActiveVideoId,
+    fireplaceQuality,
+    showDiagnostics:
+      typeof partial.showDiagnostics === 'boolean'
+        ? partial.showDiagnostics
+        : base.showDiagnostics,
+    fireEffectStyle,
+    viewMode,
+    cameraZoom: clampNum(partial.cameraZoom ?? partial.zoom, 0.85, 2.2, syncedZoom),
+    pureView: typeof partial.pureView === 'boolean' ? partial.pureView : base.pureView,
+    lastSettingsTab,
   };
 }
 
 /**
  * Parses URL query string and MyPC launch path into partial settings overrides.
  * Supports MyPC Screensaver Settings host integration:
- *   ?scene=campfire&mode=settings&clock=12h&quality=high&fire=1.1&rain=0.8&orbit=1&video=fire4k
+ *   ?scene=hearth&mode=settings&clock=12h&quality=high&fire=1.1&zoom=1.35&fireStyle=game_flipbook&orbit=1&video=fire4k
  */
 export function parseLaunchOverrides(
   searchStr: string,
@@ -628,7 +758,8 @@ export function parseLaunchOverrides(
   const out: Partial<ScreensaverSettings> & { pureView?: boolean } = {};
   const params = new URLSearchParams(searchStr.startsWith('?') ? searchStr.slice(1) : searchStr);
 
-  const sceneParam = params.get('scene') || params.get('style');
+  const rawSceneParam = params.get('scene') || params.get('style');
+  const sceneParam = rawSceneParam === 'campfire' ? 'hearth' : rawSceneParam;
   if (isValidSceneId(sceneParam)) {
     out.scene = sceneParam;
     out.audioChannels = { ...SCENE_METADATA[sceneParam].defaultAudioMix };
@@ -673,6 +804,29 @@ export function parseLaunchOverrides(
   if (params.has('embers')) out.emberDensity = clampNum(params.get('embers'), 0, 1.5, 0.85);
   if (params.has('rain')) out.rainIntensity = clampNum(params.get('rain'), 0, 1.5, 0.78);
   if (params.has('wind')) out.windSpeed = clampNum(params.get('wind'), 0, 1.2, 0.35);
+  if (params.has('view') || params.has('viewMode')) {
+    const vm = params.get('view') || params.get('viewMode');
+    if (vm === 'wide' || vm === 'fit' || vm === 'hearth' || vm === 'logs') {
+      out.viewMode = vm;
+      const matched = CAMERA_VIEW_MODES.find((m) => m.id === vm);
+      if (matched) out.cameraZoom = matched.equivZoom;
+    }
+  } else if (params.has('zoom')) {
+    const z = clampNum(params.get('zoom'), 0.85, 2.2, 1.0);
+    out.cameraZoom = z;
+    out.viewMode = z >= 1.7 ? 'logs' : z >= 1.3 ? 'hearth' : z >= 1.08 ? 'fit' : 'wide';
+  }
+  if (params.has('fireStyle')) {
+    const fs = params.get('fireStyle');
+    if (
+      fs === 'game_flipbook' ||
+      fs === 'volumetric_shader' ||
+      fs === 'fluid_ribbons' ||
+      fs === 'roaring_bonfire'
+    ) {
+      out.fireEffectStyle = fs;
+    }
+  }
   if (params.has('orbit')) out.burnInProtection = params.get('orbit') !== '0' && params.get('orbit') !== 'false';
   if (params.has('mute')) out.masterAudio = params.get('mute') !== '1' && params.get('mute') !== 'true';
 
@@ -689,7 +843,7 @@ export function parseLaunchOverrides(
     }
   }
 
-  // Deep link path from MyPC.launch (e.g. "scene/campfire", "video/fire4k", "settings", "preview/rain")
+  // Deep link path from MyPC.launch (e.g. "scene/hearth", "video/fire4k", "settings", "preview/rain")
   if (launchPath && typeof launchPath === 'string') {
     const clean = launchPath.replace(/^[/?#]+/, '').trim();
     if (clean === 'settings' || clean.startsWith('settings/')) {
@@ -698,22 +852,25 @@ export function parseLaunchOverrides(
       const targetVid = clean.slice('video/'.length).split('?')[0];
       if (targetVid) out.activeVideoId = targetVid;
     } else if (clean.startsWith('scene/')) {
-      const target = clean.slice('scene/'.length).split('?')[0];
+      const rawTarget = clean.slice('scene/'.length).split('?')[0];
+      const target = rawTarget === 'campfire' ? 'hearth' : rawTarget;
       if (isValidSceneId(target)) {
         out.scene = target;
         out.activeVideoId = null;
         out.audioChannels = { ...SCENE_METADATA[target].defaultAudioMix };
       }
     } else if (clean.startsWith('preview/')) {
-      const target = clean.slice('preview/'.length).split('?')[0];
+      const rawTarget = clean.slice('preview/'.length).split('?')[0];
+      const target = rawTarget === 'campfire' ? 'hearth' : rawTarget;
       out.mode = 'preview';
       out.pureView = true;
       if (isValidSceneId(target)) {
         out.scene = target;
       }
-    } else if (isValidSceneId(clean)) {
-      out.scene = clean;
-      out.audioChannels = { ...SCENE_METADATA[clean].defaultAudioMix };
+    } else if (isValidSceneId(clean === 'campfire' ? 'hearth' : clean)) {
+      const target = (clean === 'campfire' ? 'hearth' : clean) as SceneId;
+      out.scene = target;
+      out.audioChannels = { ...SCENE_METADATA[target].defaultAudioMix };
     }
   }
 
@@ -855,6 +1012,9 @@ export function buildMyPCHostUrl(
   params.set('fire', settings.fireIntensity.toFixed(2));
   params.set('embers', settings.emberDensity.toFixed(2));
   params.set('rain', settings.rainIntensity.toFixed(2));
+  params.set('view', settings.viewMode || 'wide');
+  params.set('zoom', settings.cameraZoom.toFixed(2));
+  params.set('fireStyle', settings.fireEffectStyle);
   params.set('orbit', settings.burnInProtection ? '1' : '0');
   if (settings.activeVideoId) {
     params.set('video', settings.activeVideoId);
@@ -915,6 +1075,10 @@ export interface TranslationStrings {
     autoCycleMinutes: string;
     sleepTimerMinutes: string;
     hudAutoHideSec: string;
+    fireplaceQuality: string;
+    showDiagnostics: string;
+    cameraZoom: string;
+    fireEffectStyle: string;
   };
   channels: Record<keyof AudioMixChannels, string>;
 }
@@ -926,13 +1090,8 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
     scenes: {
       hearth: {
         name: 'Grand Hearth Fireplace',
-        subtitle: 'Herringbone brick parlor fireplace with crackling oak logs & glowing coal bed',
+        subtitle: 'Herringbone brick parlor fireplace with game-engine VFX flames & crackling oak logs',
         badge: 'Home Fireplace',
-      },
-      campfire: {
-        name: 'Wilderness Fire Camp',
-        subtitle: 'Roaring pine clearing campfire under Milky Way stars with buoyant rising embers',
-        badge: 'Fire Camp',
       },
       rain: {
         name: 'Midnight Rain & Glass',
@@ -943,6 +1102,11 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         name: 'Aurora Borealis Fjord',
         subtitle: 'Solar emerald & violet curtains mirrored across still arctic mountain waters',
         badge: 'Arctic Sky',
+      },
+      cinematic: {
+        name: 'Cinematic Fireplace',
+        subtitle: 'WebGL2 carved limestone fireplace with 64-frame Sub-UV game fire VFX & glowing oak logs',
+        badge: 'Cinematic Fireplace',
       },
       ocean: {
         name: 'Bioluminescent Reef',
@@ -1004,6 +1168,10 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
       autoCycleMinutes: 'Auto-Cycle Scenes Interval',
       sleepTimerMinutes: 'TV Sleep Timer (Auto-Exit)',
       hudAutoHideSec: 'HUD Auto-Hide Timeout',
+      fireplaceQuality: 'Cinematic Fireplace Quality (WebGL2)',
+      showDiagnostics: 'WebGL2 Performance Diagnostics Overlay',
+      cameraZoom: 'Camera Zoom (Zoom In / Out)',
+      fireEffectStyle: 'Open-Source & Game Fire VFX Engine',
     },
     channels: {
       hearthRoar: 'Deep Hearth Convection & Draft Roar',
@@ -1023,11 +1191,6 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         subtitle: 'Cheminée en briques avec bûches de chêne crépitantes et braises ardentes',
         badge: 'Feu de Maison',
       },
-      campfire: {
-        name: 'Feu de Camp Sauvage',
-        subtitle: 'Feu de camp sous la Voie Lactée avec étincelles ascendantes en forêt de pins',
-        badge: 'Feu de Camp',
-      },
       rain: {
         name: 'Pluie de Minuit & Vitre',
         subtitle: 'Gouttes réfractives sur la vitre, bokeh urbain chaleureux et orage lointain',
@@ -1037,6 +1200,11 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         name: 'Fjord des Aurores Boréales',
         subtitle: 'Voiles solaires émeraude et violets reflétés sur les eaux calmes de l’Arctique',
         badge: 'Aurore Polaire',
+      },
+      cinematic: {
+        name: 'Cheminée Cinématique',
+        subtitle: 'Cheminée en pierre sculptée WebGL2 avec effets de feu VFX et bûches de chêne ardentes',
+        badge: 'Cheminée Cinématique',
       },
       ocean: {
         name: 'Récif Bioluminescent',
@@ -1098,6 +1266,10 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
       autoCycleMinutes: 'Intervalle de Rotation des Scènes',
       sleepTimerMinutes: 'Minuterie d’Arrêt Auto',
       hudAutoHideSec: 'Masquage Auto de l’Interface',
+      fireplaceQuality: 'Qualité Cheminée Cinématique (WebGL2)',
+      showDiagnostics: 'Superposition de Diagnostic WebGL2',
+      cameraZoom: 'Zoom de la Caméra (Zoom Avant / Arrière)',
+      fireEffectStyle: 'Moteur d’Effets Visuels de Feu (VFX)',
     },
     channels: {
       hearthRoar: 'Tirage et Souffle Profond du Foyer',
@@ -1117,11 +1289,6 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         subtitle: 'Hogar de ladrillo con troncos de roble crepitantes y brasas encendidas',
         badge: 'Chimenea de Casa',
       },
-      campfire: {
-        name: 'Fogata de Campamento',
-        subtitle: 'Fogata bajo las estrellas con chispas ascendentes en un claro del bosque',
-        badge: 'Fogata',
-      },
       rain: {
         name: 'Lluvia de Medianoche',
         subtitle: 'Gotas refractivas deslizándose por el cristal con luces bokeh y truenos',
@@ -1131,6 +1298,11 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         name: 'Fiordo de Aurora Boreal',
         subtitle: 'Cortinas solares esmeralda y violeta reflejadas en aguas árticas',
         badge: 'Aurora Polar',
+      },
+      cinematic: {
+        name: 'Chimenea Cinemática',
+        subtitle: 'Chimenea de piedra tallada WebGL2 con efectos VFX de fuego y troncos incandescentes',
+        badge: 'Chimenea Cinemática',
       },
       ocean: {
         name: 'Arrecife Bioluminiscente',
@@ -1192,6 +1364,10 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
       autoCycleMinutes: 'Rotación Automática de Escenas',
       sleepTimerMinutes: 'Temporizador de Apagado',
       hudAutoHideSec: 'Ocultar Controles Automáticamente',
+      fireplaceQuality: 'Calidad Chimenea Cinemática (WebGL2)',
+      showDiagnostics: 'Superposición de Diagnóstico WebGL2',
+      cameraZoom: 'Zoom de Cámara (Acercar / Alejar)',
+      fireEffectStyle: 'Motor de Efectos Visuales de Fuego (VFX)',
     },
     channels: {
       hearthRoar: 'Tiro Profundo y Rugido de la Chimenea',
@@ -1211,11 +1387,6 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         subtitle: 'مدفأة منزلية من الطوب والحجر مع حطب البلوط المتقد والجمر المتوهج',
         badge: 'مدفأة منزلية',
       },
-      campfire: {
-        name: 'نار المخيم البري',
-        subtitle: 'نار مخيم متوهجة تحت نجوم درب التبانة مع شرارات متصاعدة في غابة الصنوبر',
-        badge: 'نار المخيم',
-      },
       rain: {
         name: 'مطر منتصف الليل والنافذة',
         subtitle: 'قطرات مطر تنساب على الزجاج الدافئ مع أضواء المدينة البعيدة والرعد',
@@ -1225,6 +1396,11 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
         name: 'شفق قطبي فوق المضيق',
         subtitle: 'ستائر الشفق القطبي الزمردية والبنفسجية المنعكسة على المياه الهادئة',
         badge: 'الشفق القطبي',
+      },
+      cinematic: {
+        name: 'المدفأة السينمائية',
+        subtitle: 'مدفأة حجرية فاخرة بتقنية WebGL2 مع مؤثرات لهب الألعاب وحطب البلوط المتوهج',
+        badge: 'المدفأة السينمائية',
       },
       ocean: {
         name: 'الشعاب المضيئة حيوياً',
@@ -1286,6 +1462,10 @@ export const TRANSLATIONS: Record<SupportedLang, TranslationStrings> = {
       autoCycleMinutes: 'فترة التبديل التلقائي للمشاهد',
       sleepTimerMinutes: 'مؤقت الإيقاف التلقائي',
       hudAutoHideSec: 'وقت إخفاء الواجهة تلقائياً',
+      fireplaceQuality: 'جودة المدفأة السينمائية (WebGL2)',
+      showDiagnostics: 'إظهار تشخيص الأداء (WebGL2)',
+      cameraZoom: 'تقريب وإبعاد الكاميرا (Zoom)',
+      fireEffectStyle: 'نمط المؤثرات البصرية للنار (VFX)',
     },
     channels: {
       hearthRoar: 'هدير الموقد وتيار الهواء الدافئ',

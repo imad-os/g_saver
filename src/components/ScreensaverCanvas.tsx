@@ -1,16 +1,18 @@
 import React, { useEffect, useRef } from 'react';
 import {
   APP_VERSION,
+  CameraViewMode,
   QualityBudget,
   SceneId,
   ScreensaverSettings,
   resolveQualityBudget,
 } from '../utils/screensaverLogic';
+import { renderCanvasGameFireVfx } from '../utils/openSourceFireVfx';
 
 import hearthPlateUrl from '../assets/images/scene_hearth_fireplace_1794237280004.jpg';
-import campfirePlateUrl from '../assets/images/scene_wilderness_campfire_1794237282609.jpg';
 import rainPlateUrl from '../assets/images/scene_midnight_rain_window_1794237285665.jpg';
 import auroraPlateUrl from '../assets/images/scene_aurora_fjord_1794237286746.jpg';
+import cinematicPlateUrl from '../assets/images/fireplace_stone_plate_1794305469574.jpg';
 import oceanPlateUrl from '../assets/images/scene_deep_ocean_reef_1794237287683.jpg';
 import zenPlateUrl from '../assets/images/scene_kyoto_zen_pond_1794237293821.jpg';
 
@@ -19,6 +21,7 @@ interface ScreensaverCanvasProps {
   hardwareTier: 'low' | 'mid' | 'high';
   isPaused: boolean;
   gamepadAxesRef: React.MutableRefObject<{ rx: number; ry: number }>;
+  orbitOffset?: { x: number; y: number };
   onThunderFlash?: (intensity: number) => void;
   onCanvasInteract?: () => void;
 }
@@ -28,7 +31,7 @@ const LOGICAL_H = 540;
 
 const SCENE_PLATE_URLS: Record<SceneId, string> = {
   hearth: `${hearthPlateUrl}?v=${APP_VERSION}`,
-  campfire: `${campfirePlateUrl}?v=${APP_VERSION}`,
+  cinematic: `${cinematicPlateUrl}?v=${APP_VERSION}`,
   rain: `${rainPlateUrl}?v=${APP_VERSION}`,
   aurora: `${auroraPlateUrl}?v=${APP_VERSION}`,
   ocean: `${oceanPlateUrl}?v=${APP_VERSION}`,
@@ -107,11 +110,12 @@ function createLightMaps(): LightMaps {
   };
 }
 
-export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
+export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
   settings,
   hardwareTier,
   isPaused,
   gamepadAxesRef,
+  orbitOffset = { x: 0, y: 0 },
   onThunderFlash,
   onCanvasInteract,
 }) => {
@@ -142,15 +146,17 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
 
     const lightMaps = createLightMaps();
 
-    // Preload all 6 photorealistic 8K cinema plates into pre-scaled 960x540 offscreen buffers
+    // Lazy-load only the active scene's plate into a 960x540 offscreen canvas to save ~50 MB of Smart TV RAM
     const plateCanvases: Partial<Record<SceneId, HTMLCanvasElement>> = {};
-    const sceneKeys: SceneId[] = ['hearth', 'campfire', 'rain', 'aurora', 'ocean', 'zen'];
+    const loadingScenes = new Set<SceneId>();
 
-    sceneKeys.forEach((sc) => {
+    const ensurePlateLoaded = (sc: SceneId) => {
+      if (plateCanvases[sc] || loadingScenes.has(sc)) return;
+      loadingScenes.add(sc);
       const img = new Image();
       img.decoding = 'async';
-      img.src = SCENE_PLATE_URLS[sc];
       img.onload = () => {
+        img.onload = null;
         const off = document.createElement('canvas');
         off.width = LOGICAL_W;
         off.height = LOGICAL_H;
@@ -160,7 +166,10 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
           plateCanvases[sc] = off;
         }
       };
-    });
+      img.src = SCENE_PLATE_URLS[sc];
+    };
+
+    ensurePlateLoaded(settingsRef.current.scene);
 
     // Zero-GC TypedArray pools
     const embers = new Float32Array(MAX_EMBERS * EMBER_STRIDE);
@@ -169,13 +178,9 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
     const drops = new Float32Array(MAX_DROPS * DROP_STRIDE);
     const ripples = new Float32Array(MAX_RIPPLES * RIPPLE_STRIDE);
 
-    const getFireOrigin = (scene: SceneId): { cx: number; cy: number; spreadX: number } => {
-      if (scene === 'hearth') {
-        // Calibrated to the exact firebox grate & logs in scene_hearth_fireplace
-        return { cx: 634, cy: 356, spreadX: 92 };
-      }
-      // Calibrated to the exact stone ring & logs in scene_wilderness_campfire
-      return { cx: 498, cy: 386, spreadX: 68 };
+    const getFireOrigin = (_scene: SceneId): { cx: number; cy: number; spreadX: number } => {
+      // Calibrated to the exact firebox grate & logs in scene_hearth_fireplace
+      return { cx: 634, cy: 356, spreadX: 92 };
     };
 
     const spawnEmber = (i: number, randomLife = false) => {
@@ -262,28 +267,58 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
     let simTime = 0;
     let lightningFlash = 0;
 
-    const handleResize = () => {
-      const scale = budgetRef.current.resolutionScale;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2) * scale;
-      const targetW = Math.max(480, Math.round(window.innerWidth * dpr));
-      const targetH = Math.max(270, Math.round(window.innerHeight * dpr));
+    const resolveCanvasCrop = (
+      scene: SceneId,
+      viewMode: CameraViewMode
+    ): { x: number; y: number; w: number; h: number; resMult: number } => {
+      if (scene === 'hearth') {
+        if (viewMode === 'fit') {
+          return { x: 112, y: 36, w: 832, h: 468, resMult: 0.94 };
+        }
+        if (viewMode === 'hearth') {
+          // Shows only the brick/stone hearth design & mantel, no outer room wall or window
+          return { x: 384, y: 110, w: 512, h: 288, resMult: 0.86 };
+        }
+        if (viewMode === 'logs') {
+          // No wall, no outer design — only inside hearth herringbone brick walls texture, grate, logs & fire
+          return { x: 492, y: 222, w: 284, h: 160, resMult: 0.78 };
+        }
+        return { x: 0, y: 0, w: LOGICAL_W, h: LOGICAL_H, resMult: 1.0 };
+      }
+
+      if (viewMode === 'fit') return { x: 56, y: 32, w: 848, h: 477, resMult: 0.94 };
+      if (viewMode === 'hearth') return { x: 144, y: 81, w: 672, h: 378, resMult: 0.88 };
+      if (viewMode === 'logs') return { x: 240, y: 135, w: 480, h: 270, resMult: 0.80 };
+      return { x: 0, y: 0, w: LOGICAL_W, h: LOGICAL_H, resMult: 1.0 };
+    };
+
+    const syncViewportAndCrop = () => {
+      const st = settingsRef.current;
+      const crop = resolveCanvasCrop(st.scene, st.viewMode || 'wide');
+      const scale = budgetRef.current.resolutionScale * crop.resMult;
+      const targetW = Math.max(420, Math.round(LOGICAL_W * scale));
+      const targetH = Math.max(236, Math.round(LOGICAL_H * scale));
       if (canvas.width !== targetW || canvas.height !== targetH) {
         canvas.width = targetW;
         canvas.height = targetH;
       }
-      ctx.setTransform(canvas.width / LOGICAL_W, 0, 0, canvas.height / LOGICAL_H, 0, 0);
+      const sx = canvas.width / crop.w;
+      const sy = canvas.height / crop.h;
+      ctx.setTransform(sx, 0, 0, sy, -crop.x * sx, -crop.y * sy);
     };
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
+    syncViewportAndCrop();
+    window.addEventListener('resize', syncViewportAndCrop);
 
     const updateSimulation = (dt: number) => {
-      simTime += dt;
+      // Wrap simTime at 3600s (1 hour) so float trig functions stay 100% accurate over 12+ hours
+      simTime = (simTime + dt) % 3600.0;
       const st = settingsRef.current;
       const budget = budgetRef.current;
 
       if (lastScene !== st.scene) {
         lastScene = st.scene;
+        ensurePlateLoaded(st.scene);
         initFlameRibbons(st.scene);
         for (let i = 0; i < MAX_EMBERS; i++) spawnEmber(i, true);
       }
@@ -291,7 +326,7 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
       const padWind = gamepadAxesRef.current.rx * 35;
       const effectiveWind = st.windSpeed * 45 + padWind;
 
-      if (st.scene === 'hearth' || st.scene === 'campfire') {
+      if (st.scene === 'hearth') {
         const eCount = Math.min(
           MAX_EMBERS,
           Math.floor(budget.maxEmberParticles * Math.min(1.4, st.emberDensity))
@@ -431,19 +466,23 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
 
-      // Wide ambient warm light cast across the stone hearth, floor, armchair / clearing stones
-      const roomLightR = (isHearth ? 390 : 350) * (0.85 + flicker * 0.25);
-      ctx.globalAlpha = Math.min(0.85, 0.36 * flicker * st.coalGlow);
-      ctx.drawImage(
-        lightMaps.amberExposure,
-        orig.cx - roomLightR,
-        orig.cy - roomLightR * 0.68,
-        roomLightR * 2,
-        roomLightR * 1.35
-      );
+      const viewMode = st.viewMode || 'wide';
 
-      // Mantelpiece candle flicker in Hearth scene (calibrated to x=608, y=38 on plate)
-      if (isHearth) {
+      // Skip wide room illumination in 'logs' mode to save GPU fill-rate
+      if (viewMode !== 'logs') {
+        const roomLightR = (isHearth ? 390 : 350) * (0.85 + flicker * 0.25);
+        ctx.globalAlpha = Math.min(0.85, 0.36 * flicker * st.coalGlow);
+        ctx.drawImage(
+          lightMaps.amberExposure,
+          orig.cx - roomLightR,
+          orig.cy - roomLightR * 0.68,
+          roomLightR * 2,
+          roomLightR * 1.35
+        );
+      }
+
+      // Mantelpiece candle flicker in Hearth scene (skipped in 'hearth' and 'logs' modes where candle is outside crop)
+      if (isHearth && (viewMode === 'wide' || viewMode === 'fit')) {
         const candleFlicker = 0.7 + 0.3 * Math.sin(simTime * 13.5 + Math.cos(simTime * 6.2));
         ctx.globalAlpha = 0.35 * candleFlicker;
         ctx.drawImage(lightMaps.coreDodger, 608 - 42, 38 - 42, 84, 84);
@@ -461,9 +500,23 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
         84
       );
 
-      // 3. Multi-Octave Turbulent Light-Field Nodes (color-dodge & screen modulation of real photographic flames & coals)
-      ctx.globalCompositeOperation = 'color-dodge';
-      const nodeCount = budget.tier === 'low' ? 10 : 18;
+      // 3. Open-Source & Game-Engine Fire Visual Effects (64-Frame Sub-UV Flipbook / Worley-Curl / Fluid Ribbons)
+      renderCanvasGameFireVfx(
+        ctx,
+        simTime,
+        orig.cx,
+        orig.cy,
+        orig.spreadX,
+        firePower,
+        st.flameHeight,
+        st.coalGlow,
+        st.windSpeed + gamepadAxesRef.current.rx * 0.4,
+        st.fireEffectStyle || 'game_flipbook'
+      );
+
+      // 4. Multi-Octave Turbulent Light-Field Nodes (additive modulation of real photographic flames & coals)
+      ctx.globalCompositeOperation = 'lighter';
+      const nodeCount = budget.tier === 'low' ? 8 : 12;
       const windTilt =
         (st.windSpeed * 22 + gamepadAxesRef.current.rx * 20) * (isHearth ? 0.35 : 0.75);
       const flameCenterY = isHearth ? 286 : 334;
@@ -485,7 +538,7 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
         const ny = flameCenterY + 32 - rise * (isHearth ? 85 : 95) * st.flameHeight;
         const radius = (26 + (1 - Math.abs(normX)) * 34) * (1 - rise * 0.45) * firePower;
 
-        ctx.globalAlpha = Math.min(0.55, (1 - rise) * pulse * 0.34 * firePower);
+        ctx.globalAlpha = Math.min(0.45, (1 - rise) * pulse * 0.28 * firePower);
         ctx.drawImage(
           i % 2 === 0 ? lightMaps.coreDodger : lightMaps.crimsonCoal,
           nx - radius,
@@ -791,25 +844,26 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
     const drawFrame = () => {
       const st = settingsRef.current;
       const budget = budgetRef.current;
+      ensurePlateLoaded(st.scene);
+      syncViewportAndCrop();
       const plate = plateCanvases[st.scene];
 
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
 
       if (!plate) {
-        // Dark fallback while image decodes on first millisecond
         ctx.fillStyle = '#080605';
         ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
         return;
       }
 
-      // 1. Blit 8K Photorealistic Cinema Base Plate
+      // 1. Blit Photorealistic Cinema Base Plate
       ctx.drawImage(plate, 0, 0, LOGICAL_W, LOGICAL_H);
 
       // 2. Apply Real-Time Physical Shader & Particle Passes
-      if (st.scene === 'hearth' || st.scene === 'campfire') {
+      if (st.scene === 'hearth') {
         renderPhotorealisticFire(plate, st, budget);
-        if (st.audioChannels.rainDownpour > 0.18) {
+        if (st.audioChannels.rainDownpour > 0.18 && (st.viewMode === 'wide' || st.viewMode === 'fit')) {
           renderPhotorealisticRain(plate, st, budget);
         }
       } else if (st.scene === 'rain') {
@@ -885,16 +939,29 @@ export const ScreensaverCanvas: React.FC<ScreensaverCanvasProps> = ({
       disposed = true;
       if (rafId) cancelAnimationFrame(rafId);
       if (timerId) window.clearTimeout(timerId);
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', syncViewportAndCrop);
     };
   }, [gamepadAxesRef]);
+
+  const tx = settings.burnInProtection ? orbitOffset.x * 0.35 : 0;
+  const ty = settings.burnInProtection ? orbitOffset.y * 0.35 : 0;
+  const orbitScale = settings.burnInProtection ? 1.02 : 1.0;
 
   return (
     <canvas
       ref={canvasRef}
       data-testid="screensaver-canvas"
+      data-view-mode={settings.viewMode || 'wide'}
       onClick={onCanvasInteract}
+      style={{
+        transform:
+          orbitScale !== 1.0 || tx !== 0 || ty !== 0
+            ? `translate3d(${tx}px, ${ty}px, 0) scale(${orbitScale})`
+            : undefined,
+      }}
       className="block w-screen h-screen cursor-pointer"
     />
   );
 };
+
+export const ScreensaverCanvas = React.memo(ScreensaverCanvasInner);

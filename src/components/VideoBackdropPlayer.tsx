@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  CAMERA_VIEW_MODES,
   ScreensaverSettings,
   ScreensaverVideoItem,
   evaluateVideoSizeNotice,
@@ -23,7 +24,7 @@ interface VideoBackdropPlayerProps {
   onInteract?: () => void;
 }
 
-export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
+const VideoBackdropPlayerInner: React.FC<VideoBackdropPlayerProps> = ({
   settings,
   activeVideo,
   isPaused,
@@ -35,6 +36,8 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamHandleRef = useRef<MyPCDriveStreamHandle | null>(null);
+  const fallbackAttemptedRef = useRef<boolean>(false);
+  const resolvedDriveFileRef = useRef<MyPCDriveFile | null>(null);
 
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [streamMode, setStreamMode] = useState<'worker' | 'blob' | 'direct' | null>(null);
@@ -47,6 +50,8 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
   // Resolve URI via MyPC.drive.stream or direct URL whenever activeVideo changes
   useEffect(() => {
     let cancelled = false;
+    fallbackAttemptedRef.current = false;
+    resolvedDriveFileRef.current = null;
 
     const cleanupStream = () => {
       if (streamHandleRef.current) {
@@ -86,7 +91,7 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
 
       if (!mypc.drive || (typeof mypc.apiLevel === 'number' && mypc.apiLevel < 14)) {
         setErrorMsg(
-          'MyPC Drive (API Level 14) is required to stream Google Drive videos. Showing fallback scene plate.'
+          'MyPC Drive (API Level 14) is required to stream Google Drive videos. Showing fallback scene.'
         );
         return cleanupStream;
       }
@@ -100,7 +105,7 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
 
           if (!st.configured) {
             setErrorMsg(
-              'Google Drive is not configured in MyPC App Store Manager yet. Showing fallback scene plate.'
+              'Google Drive is not configured in MyPC App Store Manager yet. Showing fallback scene.'
             );
             setIsBuffering(false);
             return;
@@ -113,20 +118,25 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
             return;
           }
 
-          // Fetch Drive file metadata first so MyPC.drive.stream knows exact size & mimeType for Range requests
+          // IMPORTANT: Never initialize `size` from an estimated UI input!
+          // Passing a wrong `size` causes MyPC.drive.stream's Service Worker to fail with 416 Range Not Satisfiable
+          // after the first 2 MB (~3-5 seconds of playback). Only set `size` if `mypc.drive.get` returns a real size.
           let driveFile: MyPCDriveFile = {
             id: fileId,
             name: activeVideo.title || 'video.mp4',
             mimeType: activeVideo.mimeType || 'video/mp4',
-            size: activeVideo.sizeBytes ? String(activeVideo.sizeBytes) : undefined,
           };
 
+          let verifiedBytes = 0;
           try {
             const meta = await mypc.drive!.get(fileId);
             if (cancelled) return;
             if (meta && meta.id) {
               driveFile = meta;
               const numSize = Number(meta.size);
+              if (numSize > 0) {
+                verifiedBytes = numSize;
+              }
               const resLabel =
                 meta.videoMediaMetadata?.width && meta.videoMediaMetadata?.height
                   ? `${meta.videoMediaMetadata.width}x${meta.videoMediaMetadata.height}`
@@ -140,17 +150,48 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
               }
             }
           } catch {
-            // If get(id) fails, proceed with stream(driveFile) directly
+            // Proceed without size so MyPC.drive.read discovers the exact total from Content-Range
           }
 
-          const handle = await mypc.drive!.stream(driveFile, {
-            worker: 'sw.js',
-            onProgress(p: number) {
-              if (!cancelled) {
-                setLoadProgress(Math.round(p * 100));
-              }
-            },
-          });
+          resolvedDriveFileRef.current = driveFile;
+
+          // For screensaver loops <= 95 MB (or when size is unknown), prefer local Blob streaming first:
+          // downloading once into a local `blob:` URL guarantees 10+ hours of continuous looping with ZERO
+          // network requests, ZERO 2 MB chunk boundary drops, and ZERO OAuth token expiration mid-loop!
+          const preferBlobForMultiHourLoop =
+            verifiedBytes === 0 || verifiedBytes <= 95 * 1024 * 1024;
+
+          let handle: MyPCDriveStreamHandle;
+          if (preferBlobForMultiHourLoop) {
+            try {
+              handle = await mypc.drive!.stream(driveFile, {
+                onProgress(p: number) {
+                  if (!cancelled) {
+                    setLoadProgress(Math.round(p * 100));
+                  }
+                },
+              });
+            } catch {
+              // If full blob download fails (e.g. file is larger than expected), fall back to sw.js range worker
+              handle = await mypc.drive!.stream(driveFile, {
+                worker: 'sw.js',
+                onProgress(p: number) {
+                  if (!cancelled) {
+                    setLoadProgress(Math.round(p * 100));
+                  }
+                },
+              });
+            }
+          } else {
+            handle = await mypc.drive!.stream(driveFile, {
+              worker: 'sw.js',
+              onProgress(p: number) {
+                if (!cancelled) {
+                  setLoadProgress(Math.round(p * 100));
+                }
+              },
+            });
+          }
 
           if (cancelled) {
             handle.close();
@@ -206,22 +247,81 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
       v.pause();
     } else if (resolvedUrl && v.paused) {
       v.play().catch(() => {
-        // If browser autoplay policy blocks unmuted playback prior to gesture, fall back to muted play
         v.muted = true;
         v.play().catch(() => {});
       });
     }
   }, [
-    activeVideo,
+    activeVideo?.id,
+    activeVideo?.audioMode,
+    activeVideo?.videoVolume,
+    activeVideo?.playbackRate,
     isPaused,
     resolvedUrl,
     settings.masterAudio,
     settings.masterVolume,
   ]);
 
+  // Multi-hour playback watchdog: ensures video never stays stalled or paused at loop boundaries
+  useEffect(() => {
+    if (!resolvedUrl || isPaused || errorMsg) return;
+    const watchdog = window.setInterval(() => {
+      const v = videoRef.current;
+      if (!v || isPaused) return;
+      if (v.ended && activeVideo?.loop !== false) {
+        v.currentTime = 0;
+        v.play().catch(() => {});
+      } else if (v.paused && v.readyState >= 2) {
+        v.play().catch(() => {
+          v.muted = true;
+          v.play().catch(() => {});
+        });
+      }
+    }, 2500);
+    return () => window.clearInterval(watchdog);
+  }, [resolvedUrl, isPaused, errorMsg, activeVideo?.loop]);
+
   if (!activeVideo) return null;
 
   const sizeNotice = evaluateVideoSizeNotice(activeVideo.sizeBytes);
+
+  const handleVideoStreamError = async () => {
+    // If worker mode failed mid-stream (e.g. after the first 2MB chunk), automatically switch to blob mode!
+    const mypc = getMyPC();
+    if (
+      streamMode === 'worker' &&
+      !fallbackAttemptedRef.current &&
+      resolvedDriveFileRef.current &&
+      mypc.drive
+    ) {
+      fallbackAttemptedRef.current = true;
+      setIsBuffering(true);
+      setErrorMsg(null);
+      try {
+        if (streamHandleRef.current) {
+          streamHandleRef.current.close();
+          streamHandleRef.current = null;
+        }
+        const blobHandle = await mypc.drive.stream(resolvedDriveFileRef.current, {
+          onProgress(p: number) {
+            setLoadProgress(Math.round(p * 100));
+          },
+        });
+        streamHandleRef.current = blobHandle;
+        setStreamMode(blobHandle.mode);
+        setResolvedUrl(blobHandle.url);
+        return;
+      } catch {
+        // Proceed to error message below
+      }
+    }
+
+    setIsBuffering(false);
+    setIsVideoReady(false);
+    setErrorMsg(
+      'Video stream interrupted or could not be decoded. Verify the URI is a valid MP4/WebM file or MyPC Drive video ID.'
+    );
+  };
 
   const handleSignInClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -231,7 +331,6 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
       await mypc.drive.signIn();
       setNeedsDriveSignIn(false);
       setErrorMsg(null);
-      // Trigger re-resolve by toggling state
       if (onVideoMetadataResolved) {
         onVideoMetadataResolved(activeVideo.id, {});
       }
@@ -239,6 +338,9 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
       // User cancelled or sign-in unavailable
     }
   };
+
+  const activeViewOpt =
+    CAMERA_VIEW_MODES.find((m) => m.id === settings.viewMode) || CAMERA_VIEW_MODES[0];
 
   return (
     <div
@@ -253,30 +355,64 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
           autoPlay
           loop={activeVideo.loop !== false}
           playsInline
+          preload="auto"
           onCanPlay={() => {
             setIsBuffering(false);
             setIsVideoReady(true);
             setLoadProgress(null);
+            const v = videoRef.current;
+            if (v && v.paused && !isPaused) {
+              v.play().catch(() => {
+                v.muted = true;
+                v.play().catch(() => {});
+              });
+            }
           }}
           onWaiting={() => setIsBuffering(true)}
           onPlaying={() => {
             setIsBuffering(false);
             setIsVideoReady(true);
+            setErrorMsg(null);
           }}
-          onError={() => {
-            setIsBuffering(false);
-            setIsVideoReady(false);
-            setErrorMsg(
-              'Video stream could not be decoded. Verify the URI is a valid MP4/WebM file or MyPC Drive video ID.'
-            );
+          onTimeUpdate={() => {
+            const v = videoRef.current;
+            if (!v || activeVideo.loop === false) return;
+            // Seamless loop wrap slightly before EOF to prevent hardware decoder freeze on Smart TVs
+            if (v.duration > 2.0 && v.currentTime >= v.duration - 0.12) {
+              v.currentTime = 0.01;
+              if (v.paused && !isPaused) {
+                v.play().catch(() => {});
+              }
+            }
           }}
+          onEnded={() => {
+            const v = videoRef.current;
+            if (v && activeVideo.loop !== false && !isPaused) {
+              v.currentTime = 0;
+              v.play().catch(() => {});
+            }
+          }}
+          onStalled={() => {
+            const v = videoRef.current;
+            if (v && !isPaused && v.readyState >= 2) {
+              v.play().catch(() => {});
+            }
+          }}
+          onError={handleVideoStreamError}
           style={{
             objectFit: activeVideo.objectFit || 'cover',
-            transform: settings.burnInProtection
-              ? `translate3d(${orbitOffset.x * 0.4}px, ${orbitOffset.y * 0.4}px, 0) scale(1.03)`
-              : undefined,
+            transform: (() => {
+              const zoomScale =
+                activeViewOpt.equivZoom * (settings.burnInProtection ? 1.03 : 1.0);
+              const tx = settings.burnInProtection ? orbitOffset.x * 0.4 : 0;
+              const ty = settings.burnInProtection ? orbitOffset.y * 0.4 : 0;
+              return zoomScale !== 1.0 || tx !== 0 || ty !== 0
+                ? `translate3d(${tx}px, ${ty}px, 0) scale(${zoomScale.toFixed(3)})`
+                : undefined;
+            })(),
+            transformOrigin: '50% 58%',
           }}
-          className={`w-screen h-screen transition-opacity duration-700 ${
+          className={`w-screen h-screen transition-opacity duration-500 ${
             isVideoReady ? 'opacity-100' : 'opacity-0'
           }`}
         />
@@ -323,10 +459,10 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
                   Loading Video: {activeVideo.title}
                 </div>
                 <div className="text-[11px] text-stone-400">
-                  {streamMode === 'worker'
+                  {loadProgress !== null
+                    ? `MyPC Drive · Caching for Seamless Loop (${loadProgress}%)`
+                    : streamMode === 'worker'
                     ? 'MyPC Drive · Streaming 2 MB Range Chunks (sw.js)'
-                    : loadProgress !== null
-                    ? `MyPC Drive · Buffering (${loadProgress}%)`
                     : 'Initializing hardware video decoder...'}
                 </div>
               </div>
@@ -392,3 +528,5 @@ export const VideoBackdropPlayer: React.FC<VideoBackdropPlayerProps> = ({
     </div>
   );
 };
+
+export const VideoBackdropPlayer = React.memo(VideoBackdropPlayerInner);

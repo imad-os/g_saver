@@ -131,6 +131,18 @@ export interface MyPCGlobal {
       }
     ) => Promise<MyPCDriveStreamHandle>;
   };
+  text?: {
+    open: (opts: {
+      value?: string;
+      kind?: 'text' | 'multi' | 'password' | 'url' | 'email' | 'number' | 'search' | 'name';
+      label?: string;
+      max?: number;
+      onInput?: (val: string) => void;
+      onSend?: (val: string) => void;
+    }) => void;
+    close: () => void;
+    active: () => boolean;
+  };
 }
 
 declare global {
@@ -255,33 +267,71 @@ export function loadInitialSettings(): {
   pureView: boolean;
 } {
   const mypc = getMyPC();
+  const profileId = mypc.info?.()?.profile?.id || 'local';
+
   // 1. Start from defaults
-  let merged = { ...DEFAULT_SETTINGS, audioChannels: { ...DEFAULT_SETTINGS.audioChannels } };
+  let merged: ScreensaverSettings = {
+    ...DEFAULT_SETTINGS,
+    audioChannels: { ...DEFAULT_SETTINGS.audioChannels },
+    videos: [...DEFAULT_SETTINGS.videos],
+  };
 
   // 2. Apply MyPC.app_config (from App Store Manager or ?app_config=...)
   if (mypc.app_config && typeof mypc.app_config === 'object') {
     merged = sanitizeSettings(merged, mypc.app_config as Record<string, unknown>);
   }
 
-  // 3. Apply per-profile saved settings from MyPC.load
+  // 3. Apply per-profile saved config from MyPC.load('config') and MyPC.load(STORAGE_KEY)
+  const savedConfig = mypc.load<Record<string, unknown> | null>('config', null);
+  if (savedConfig && typeof savedConfig === 'object') {
+    merged = sanitizeSettings(merged, savedConfig);
+  }
+
   const saved = mypc.load<Record<string, unknown> | null>(STORAGE_KEY, null);
   if (saved && typeof saved === 'object') {
     merged = sanitizeSettings(merged, saved);
+  } else if (typeof window !== 'undefined') {
+    try {
+      const rawBackup = localStorage.getItem(`${STORAGE_KEY}_${profileId}`);
+      if (rawBackup) {
+        const parsedBackup = JSON.parse(rawBackup);
+        if (parsedBackup && typeof parsedBackup === 'object') {
+          merged = sanitizeSettings(merged, parsedBackup);
+        }
+      }
+    } catch {
+      // ignore storage access errors
+    }
   }
 
   // 4. Apply URL query string and MyPC.launch deep link overrides
   const search = typeof window !== 'undefined' ? window.location.search : '';
   const launchPath = mypc.launch?.path || null;
   const overrides = parseLaunchOverrides(search, launchPath);
-  const pureView = Boolean(overrides.pureView);
   merged = sanitizeSettings(merged, overrides as Record<string, unknown>);
+  const pureView =
+    typeof overrides.pureView === 'boolean' ? overrides.pureView : Boolean(merged.pureView);
+  merged = { ...merged, pureView };
 
   return { settings: merged, pureView };
 }
 
 export function persistSettings(settings: ScreensaverSettings): void {
   const mypc = getMyPC();
+  const profileId = mypc.info?.()?.profile?.id || 'local';
+
+  // Save full settings & config object to MyPC profile storage
   mypc.save(STORAGE_KEY, settings);
+  mypc.save('config', settings);
+
+  // Also mirror to profile-scoped localStorage so synchronous boot before MyPC.init has latest profile state
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_${profileId}`, JSON.stringify(settings));
+    } catch {
+      // ignore quota errors
+    }
+  }
 
   // Also notify parent window if embedded in MyPC Screensaver Settings page
   if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
@@ -290,6 +340,7 @@ export function persistSettings(settings: ScreensaverSettings): void {
         {
           mypc_screensaver: 1,
           type: 'settingsChanged',
+          profileId,
           settings,
         },
         '*'
@@ -306,7 +357,7 @@ export function syncPauseMenuItems(lang: SupportedLang): void {
   mypc.setMenu([
     { id: 'settings', label: t.hud.settings },
     { id: 'hearth', label: t.scenes.hearth.badge },
-    { id: 'campfire', label: t.scenes.campfire.badge },
+    { id: 'cinematic', label: t.scenes.cinematic.badge },
     { id: 'rain', label: t.scenes.rain.badge },
     { id: 'aurora', label: t.scenes.aurora.badge },
     { id: 'pure', label: t.hud.pureView },

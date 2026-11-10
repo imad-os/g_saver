@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, Plugin } from 'vite';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.7.0';
 
 function mypcVersionPlugin(): Plugin {
   return {

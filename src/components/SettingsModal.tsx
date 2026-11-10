@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import {
+  APP_VERSION,
   AudioMixChannels,
+  CAMERA_VIEW_MODES,
+  CameraViewMode,
   ColorTemp,
   DEFAULT_SETTINGS,
+  FireplaceQualityPreset,
   QualityTier,
   SCENE_IDS,
   SCENE_METADATA,
@@ -12,7 +16,8 @@ import {
   TRANSLATIONS,
   buildMyPCHostUrl,
 } from '../utils/screensaverLogic';
-import { applyScenePreset } from '../utils/mypcBridge';
+import { applyScenePreset, getMyPC } from '../utils/mypcBridge';
+import { FIRE_EFFECT_STYLES, FireEffectStyle } from '../utils/openSourceFireVfx';
 import {
   Flame,
   Volume2,
@@ -25,16 +30,14 @@ import {
   Maximize2,
   Check,
   Copy,
-  CloudRain,
   Sparkles,
   Code2,
   Zap,
   X,
   Film,
-  HardDrive,
+  Frame,
 } from 'lucide-react';
 import { VideoSettingsTab } from './VideoSettingsTab';
-import { applyVideoPreset } from '../utils/mypcBridge';
 
 export type SettingsTabId = 'visuals' | 'videos' | 'audio' | 'display' | 'mypc';
 
@@ -76,6 +79,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     });
   };
 
+  const handleSelectViewMode = (modeId: CameraViewMode) => {
+    const modeSpec = CAMERA_VIEW_MODES.find((m) => m.id === modeId) || CAMERA_VIEW_MODES[0];
+    onUpdateSettings({
+      ...settings,
+      viewMode: modeSpec.id,
+      cameraZoom: modeSpec.equivZoom,
+    });
+  };
+
   const updateChannel = (ch: keyof AudioMixChannels, value: number) => {
     onUpdateSettings({
       ...settings,
@@ -111,72 +123,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const screensaverLaunchUrl = buildMyPCHostUrl(baseUrl, settings, 'screensaver');
   const settingsLaunchUrl = buildMyPCHostUrl(baseUrl, settings, 'settings');
-  const previewLaunchUrl = buildMyPCHostUrl(baseUrl, settings, 'preview');
 
   const currentSceneMeta = SCENE_METADATA[settings.scene];
   const activeVideo = settings.activeVideoId
     ? settings.videos.find((v) => v.id === settings.activeVideoId) || null
     : null;
+  const activeViewMode =
+    CAMERA_VIEW_MODES.find((m) => m.id === (settings.viewMode || 'wide')) || CAMERA_VIEW_MODES[0];
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={t.hud.settings}
-      className="fixed inset-0 z-40 flex items-center justify-center p-4 md:p-8 pointer-events-auto"
-      style={{ backgroundColor: 'rgba(6, 5, 4, 0.72)' }}
+      data-tv-scope="settings-modal"
+      className="fixed inset-0 z-40 flex items-center justify-center p-4 md:p-6 pointer-events-auto"
+      style={{ backgroundColor: 'rgba(6, 5, 4, 0.78)' }}
     >
       <div
-        className="w-full max-w-6xl max-h-[90vh] flex flex-col rounded-2xl border border-stone-700/80 shadow-2xl overflow-hidden text-stone-100"
-        style={{ backgroundColor: 'rgba(15, 12, 10, 0.96)' }}
+        className="w-full max-w-5xl max-h-[88vh] flex flex-col rounded-2xl border border-stone-700/80 shadow-2xl overflow-hidden text-stone-100"
+        style={{ backgroundColor: 'rgba(14, 12, 10, 0.97)' }}
       >
-        {/* Top Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-b border-stone-800">
+        {/* Clean Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b border-stone-800">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400">
-              <Flame className="w-6 h-6" />
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400">
+              <Flame className="w-5 h-5" />
             </div>
             <div>
               <h2
-                className="text-xl md:text-2xl font-semibold tracking-tight text-stone-100"
+                className="text-lg md:text-xl font-semibold tracking-tight text-stone-100"
                 style={{ fontFamily: 'Outfit, sans-serif' }}
               >
-                {t.appName} — {t.hud.settings}
+                {t.appName}
               </h2>
-              <p className="text-xs md:text-sm text-stone-400">
-                {activeVideo
-                  ? `Video Active: ${activeVideo.title} (${t.scenes[activeVideo.type].badge})`
-                  : `${t.scenes[settings.scene].name} · ${currentSceneMeta.tempLabel}`}{' '}
-                · TV GPU Tier:{' '}
-                <span className="font-mono text-amber-400 uppercase">{hardwareTier}</span>
+              <p className="text-xs text-stone-400">
+                {activeVideo ? `Video: ${activeVideo.title}` : t.scenes[settings.scene].name}
+                {' · '}
+                View: <span className="text-amber-300 font-semibold">{activeViewMode.label}</span>
+                {' · '}
+                <span
+                  data-testid="mypc-profile-sync-badge"
+                  className="text-emerald-400 font-medium"
+                >
+                  Saved in MyPC ({getMyPC().info?.()?.profile?.name || 'Profile'})
+                </span>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleResetDefaults}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs md:text-sm font-medium bg-stone-800/90 hover:bg-stone-700 text-stone-200 border border-stone-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400 transition-transform whitespace-nowrap shrink-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-3.5 h-3.5" />
               <span>{t.controls.resetDefaults}</span>
             </button>
 
             <button
               type="button"
               onClick={onEnterPureView}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs md:text-sm font-medium bg-stone-800/90 hover:bg-stone-700 text-amber-300 border border-amber-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400 transition-transform whitespace-nowrap shrink-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-500/30"
             >
-              <Maximize2 className="w-4 h-4" />
-              <span>{t.controls.launchPureScreensaver}</span>
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>{t.hud.pureView}</span>
             </button>
 
             <button
               type="button"
               onClick={onClose}
               aria-label={t.controls.closeSettings}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white transition-transform whitespace-nowrap shrink-0"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950"
             >
               <X className="w-4 h-4" />
               <span>{t.controls.closeSettings}</span>
@@ -184,19 +203,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Streamlined Navigation Tabs */}
         <div
           role="tablist"
           aria-label="Settings Categories"
-          className="flex items-center gap-2 px-6 py-3 bg-stone-900/90 border-b border-stone-800 overflow-x-auto"
+          className="flex items-center gap-2 px-5 py-2.5 bg-stone-900/90 border-b border-stone-800 overflow-x-auto"
         >
           {(
             [
-              { id: 'visuals', label: t.tabs.visuals, icon: Sliders },
-              { id: 'videos', label: t.tabs.videos, icon: Film },
-              { id: 'audio', label: t.tabs.audio, icon: Volume2 },
-              { id: 'display', label: t.tabs.display, icon: Clock },
-              { id: 'mypc', label: t.tabs.mypc, icon: Code2 },
+              { id: 'visuals', label: 'Scene & View', icon: Sliders },
+              { id: 'videos', label: 'Videos (Drive)', icon: Film },
+              { id: 'audio', label: 'Sound', icon: Volume2 },
+              { id: 'display', label: 'Clock & TV Care', icon: Clock },
+              { id: 'mypc', label: 'MyPC Config', icon: Code2 },
             ] as const
           ).map((tab) => {
             const Icon = tab.icon;
@@ -208,9 +227,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 aria-selected={isActive}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400 ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isActive
-                    ? 'bg-amber-500 text-stone-950 shadow-md scale-[1.02]'
+                    ? 'bg-amber-500 text-stone-950 shadow'
                     : 'bg-stone-800/70 text-stone-300 hover:bg-stone-800 hover:text-white'
                 }`}
               >
@@ -230,8 +249,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           })}
         </div>
 
-        {/* Tab Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Tab Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {activeTab === 'videos' && (
             <VideoSettingsTab
               settings={settings}
@@ -241,115 +260,161 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {activeTab === 'visuals' && (
-            <div className="space-y-6">
-              {/* Quick MyPC Drive Video Banner & Selector inside Visuals Tab */}
-              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-stone-900/90 border border-stone-800">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
-                    <HardDrive className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-stone-100">
-                      MyPC Drive 4K Video Screensaver Support
-                    </div>
-                    <p className="text-xs text-stone-400">
-                      {activeVideo
-                        ? `Currently playing video "${activeVideo.title}" (${activeVideo.uri}). Recommended video size: < 80 MB.`
-                        : 'Stream 4K fireplace, campfire, or rain videos from MyPC Google Drive or MyPC.app_config.videos (Recommended size: < 80 MB).'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {settings.videos.map((v) => {
-                    const isVidActive = settings.activeVideoId === v.id;
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() =>
-                          onUpdateSettings(applyVideoPreset(settings, isVidActive ? null : v.id))
-                        }
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                          isVidActive
-                            ? 'bg-amber-500 text-stone-950 border-amber-400'
-                            : 'bg-stone-800 text-stone-200 border-stone-700 hover:bg-stone-700'
-                        }`}
-                      >
-                        {isVidActive ? `Playing: ${v.title}` : `Play: ${v.title}`}
-                      </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('videos')}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-stone-950 transition-colors"
-                  >
-                    <Film className="w-3.5 h-3.5" />
-                    <span>Manage Videos &amp; MyPC Drive</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 6 Scene Selection Cards */}
+            <div className="space-y-5">
+              {/* 1. Ambient Scene Picker (Compact 6-Card Grid) */}
               <div>
-                <h3 className="text-sm font-semibold text-stone-300 mb-3">
-                  Select Ambient Screensaver Scene
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                <div className="flex items-center justify-between mb-2.5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400">
+                    1. Ambient Scene
+                  </h3>
+                  <span className="text-xs text-stone-400">
+                    {currentSceneMeta.tempLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                   {SCENE_IDS.map((sceneId) => {
                     const isSelected = settings.scene === sceneId && !settings.activeVideoId;
                     const sceneInfo = t.scenes[sceneId];
-                    const meta = SCENE_METADATA[sceneId];
                     return (
                       <button
                         key={sceneId}
                         type="button"
                         onClick={() => onSelectScene(sceneId)}
-                        className={`text-left p-4 rounded-xl border transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400 ${
+                        className={`text-left p-3 rounded-xl border transition-all ${
                           isSelected
-                            ? 'bg-stone-800/95 border-amber-400 ring-2 ring-amber-400/50'
-                            : 'bg-stone-900/80 border-stone-800 hover:border-stone-600'
+                            ? 'bg-stone-800 border-amber-400 ring-2 ring-amber-400/40'
+                            : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                          <span
-                            className="text-base font-semibold text-stone-100"
-                            style={{ fontFamily: 'Outfit, sans-serif' }}
-                          >
-                            {sceneInfo.name}
-                          </span>
-                          <span
-                            className="text-xs font-mono font-medium"
-                            style={{ color: meta.accent }}
-                          >
-                            {isSelected ? 'ACTIVE' : sceneInfo.badge}
-                          </span>
+                        <div className="text-xs md:text-sm font-semibold text-stone-100 truncate">
+                          {sceneInfo.name}
                         </div>
-                        <p className="text-xs text-stone-400 line-clamp-2 leading-relaxed">
-                          {sceneInfo.subtitle}
-                        </p>
+                        <div className="text-[11px] text-amber-400/90 font-mono mt-0.5 truncate">
+                          {isSelected ? 'ACTIVE' : sceneInfo.badge}
+                        </div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Real-Time Physics & Shader Parameters */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-stone-800">
-                <div className="space-y-4 bg-stone-900/60 p-5 rounded-xl border border-stone-800/90">
-                  <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
-                    <Flame className="w-4 h-4" />
-                    <span>Combustion, Embers &amp; Thermal Physics</span>
+              {/* 2. Camera View Framing Mode (Wide / Fit / Hearth / Logs) + Fire VFX Style */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-3 border-t border-stone-800/80">
+                {/* Camera Framing Modes (6 cols) */}
+                <div className="lg:col-span-6 bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
+                      <Frame className="w-4 h-4" />
+                      <span>{t.controls.cameraZoom}</span>
+                    </div>
+                    <span
+                      data-testid="settings-view-mode-readout"
+                      className="text-xs font-mono font-semibold text-emerald-400"
+                    >
+                      {activeViewMode.label} ({activeViewMode.gpuOptimizationBadge})
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {CAMERA_VIEW_MODES.map((vm) => {
+                      const isVmActive = (settings.viewMode || 'wide') === vm.id;
+                      return (
+                        <button
+                          key={vm.id}
+                          type="button"
+                          data-testid={`view-mode-${vm.id}`}
+                          onClick={() => handleSelectViewMode(vm.id)}
+                          className={`text-left p-2.5 rounded-xl border transition-all ${
+                            isVmActive
+                              ? 'bg-stone-800 border-amber-400 ring-2 ring-amber-400/40'
+                              : 'bg-stone-950/80 border-stone-800 hover:border-stone-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs md:text-sm font-semibold text-stone-100">
+                              {vm.label}
+                            </span>
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                isVmActive
+                                  ? 'bg-amber-500 text-stone-950 font-bold'
+                                  : 'bg-stone-800 text-emerald-400'
+                              }`}
+                            >
+                              {vm.gpuOptimizationBadge}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-stone-400 mt-1 line-clamp-2 leading-snug">
+                            {vm.description}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Open-Source & Game Fire VFX Style (6 cols) */}
+                <div className="lg:col-span-6 bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
+                      <Sparkles className="w-4 h-4" />
+                      <span>{t.controls.fireEffectStyle}</span>
+                    </div>
+                    <span className="text-[11px] font-mono text-stone-400">
+                      Open-Source Game VFX
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {FIRE_EFFECT_STYLES.map((fx) => {
+                      const isFxActive = (settings.fireEffectStyle || 'game_flipbook') === fx.id;
+                      return (
+                        <button
+                          key={fx.id}
+                          type="button"
+                          data-testid={`fire-vfx-${fx.id}`}
+                          onClick={() => updateField('fireEffectStyle', fx.id as FireEffectStyle)}
+                          className={`text-left p-2.5 rounded-xl border transition-all ${
+                            isFxActive
+                              ? 'bg-stone-800 border-amber-400 ring-2 ring-amber-400/40'
+                              : 'bg-stone-950/80 border-stone-800 hover:border-stone-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-semibold text-stone-100 truncate">
+                              {fx.badge}
+                            </span>
+                            {isFxActive && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-bold">
+                                ON
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-stone-400 mt-1 line-clamp-2 leading-snug">
+                            {fx.description}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Essential Scene Intensity & Low-Resource TV GPU Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-stone-800/80">
+                {/* Left: Essential Flame / Weather Sliders */}
+                <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3.5">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-stone-400">
+                    Scene Intensity
                   </div>
 
                   {/* Fire Intensity */}
                   <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
+                    <div className="flex justify-between text-xs mb-1">
                       <label htmlFor="slider-fire-intensity" className="text-stone-300 font-medium">
                         {t.controls.fireIntensity}
                       </label>
-                      <span className="font-mono tabular-nums text-amber-400">
+                      <span className="font-mono text-amber-400">
                         {Math.round(settings.fireIntensity * 100)}%
                       </span>
                     </div>
@@ -365,13 +430,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
-                  {/* Ember Density */}
+                  {/* Ember & Spark Density */}
                   <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
+                    <div className="flex justify-between text-xs mb-1">
                       <label htmlFor="slider-ember-density" className="text-stone-300 font-medium">
                         {t.controls.emberDensity}
                       </label>
-                      <span className="font-mono tabular-nums text-amber-400">
+                      <span className="font-mono text-amber-400">
                         {Math.round(settings.emberDensity * 100)}%
                       </span>
                     </div>
@@ -387,179 +452,74 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
-                  {/* Flame Height */}
-                  <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                      <label htmlFor="slider-flame-height" className="text-stone-300 font-medium">
-                        {t.controls.flameHeight}
-                      </label>
-                      <span className="font-mono tabular-nums text-amber-400">
-                        {Math.round(settings.flameHeight * 100)}%
-                      </span>
+                  {/* Coal Bed Glow / Rain Downpour */}
+                  {settings.scene === 'rain' ? (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <label htmlFor="slider-rain-intensity" className="text-stone-300 font-medium">
+                          {t.controls.rainIntensity}
+                        </label>
+                        <span className="font-mono text-sky-400">
+                          {Math.round(settings.rainIntensity * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        id="slider-rain-intensity"
+                        type="range"
+                        min="0"
+                        max="1.5"
+                        step="0.05"
+                        value={settings.rainIntensity}
+                        onChange={(e) => updateField('rainIntensity', parseFloat(e.target.value))}
+                        className="w-full accent-sky-400 h-2 bg-stone-800 rounded-lg cursor-pointer"
+                      />
                     </div>
-                    <input
-                      id="slider-flame-height"
-                      type="range"
-                      min="0.3"
-                      max="1.4"
-                      step="0.05"
-                      value={settings.flameHeight}
-                      onChange={(e) => updateField('flameHeight', parseFloat(e.target.value))}
-                      className="w-full accent-amber-500 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Coal Bed Glow */}
-                  <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                      <label htmlFor="slider-coal-glow" className="text-stone-300 font-medium">
-                        {t.controls.coalGlow}
-                      </label>
-                      <span className="font-mono tabular-nums text-amber-400">
-                        {Math.round(settings.coalGlow * 100)}%
-                      </span>
+                  ) : (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <label htmlFor="slider-coal-glow" className="text-stone-300 font-medium">
+                          {t.controls.coalGlow}
+                        </label>
+                        <span className="font-mono text-amber-400">
+                          {Math.round(settings.coalGlow * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        id="slider-coal-glow"
+                        type="range"
+                        min="0.2"
+                        max="1.4"
+                        step="0.05"
+                        value={settings.coalGlow}
+                        onChange={(e) => updateField('coalGlow', parseFloat(e.target.value))}
+                        className="w-full accent-amber-500 h-2 bg-stone-800 rounded-lg cursor-pointer"
+                      />
                     </div>
-                    <input
-                      id="slider-coal-glow"
-                      type="range"
-                      min="0.2"
-                      max="1.4"
-                      step="0.05"
-                      value={settings.coalGlow}
-                      onChange={(e) => updateField('coalGlow', parseFloat(e.target.value))}
-                      className="w-full accent-amber-500 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Woodsmoke Density */}
-                  <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                      <label htmlFor="slider-smoke-amount" className="text-stone-300 font-medium">
-                        {t.controls.smokeAmount}
-                      </label>
-                      <span className="font-mono tabular-nums text-amber-400">
-                        {Math.round(settings.smokeAmount * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      id="slider-smoke-amount"
-                      type="range"
-                      min="0"
-                      max="1.2"
-                      step="0.05"
-                      value={settings.smokeAmount}
-                      onChange={(e) => updateField('smokeAmount', parseFloat(e.target.value))}
-                      className="w-full accent-amber-500 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
+                  )}
                 </div>
 
-                {/* Weather, Rain & TV GPU Quality */}
-                <div className="space-y-4 bg-stone-900/60 p-5 rounded-xl border border-stone-800/90">
-                  <div className="flex items-center gap-2 text-sky-400 font-semibold text-sm">
-                    <CloudRain className="w-4 h-4" />
-                    <span>Atmosphere, Rain Refraction &amp; Tizen GPU Optimization</span>
-                  </div>
-
-                  {/* Rain Downpour */}
-                  <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                      <label htmlFor="slider-rain-intensity" className="text-stone-300 font-medium">
-                        {t.controls.rainIntensity}
-                      </label>
-                      <span className="font-mono tabular-nums text-sky-400">
-                        {Math.round(settings.rainIntensity * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      id="slider-rain-intensity"
-                      type="range"
-                      min="0"
-                      max="1.5"
-                      step="0.05"
-                      value={settings.rainIntensity}
-                      onChange={(e) => updateField('rainIntensity', parseFloat(e.target.value))}
-                      className="w-full accent-sky-400 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Wind Speed */}
-                  <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                      <label htmlFor="slider-wind-speed" className="text-stone-300 font-medium">
-                        {t.controls.windSpeed}
-                      </label>
-                      <span className="font-mono tabular-nums text-sky-400">
-                        {Math.round(settings.windSpeed * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      id="slider-wind-speed"
-                      type="range"
-                      min="0"
-                      max="1.2"
-                      step="0.05"
-                      value={settings.windSpeed}
-                      onChange={(e) => updateField('windSpeed', parseFloat(e.target.value))}
-                      className="w-full accent-sky-400 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Lightning Frequency */}
-                  <div>
-                    <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                      <label htmlFor="slider-lightning-freq" className="text-stone-300 font-medium">
-                        {t.controls.lightningFreq}
-                      </label>
-                      <span className="font-mono tabular-nums text-sky-400">
-                        {Math.round(settings.lightningFreq * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      id="slider-lightning-freq"
-                      type="range"
-                      min="0"
-                      max="1.0"
-                      step="0.05"
-                      value={settings.lightningFreq}
-                      onChange={(e) => updateField('lightningFreq', parseFloat(e.target.value))}
-                      className="w-full accent-sky-400 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Refractive Windowpane Droplets Toggle */}
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-xs md:text-sm text-stone-300 font-medium">
-                      {t.controls.glassDroplets}
+                {/* Right: TV GPU Optimization & Diagnostics */}
+                <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">
+                      Smart TV GPU Optimization
                     </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={settings.glassDroplets}
-                      aria-label={t.controls.glassDroplets}
-                      onClick={() => updateField('glassDroplets', !settings.glassDroplets)}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        settings.glassDroplets
-                          ? 'bg-sky-500 text-stone-950'
-                          : 'bg-stone-800 text-stone-400'
-                      }`}
-                    >
-                      {settings.glassDroplets ? 'Enabled' : 'Disabled'}
-                    </button>
+                    <span className="text-[11px] font-mono text-amber-400">
+                      Detected Tier: {hardwareTier.toUpperCase()}
+                    </span>
                   </div>
 
-                  {/* TV GPU Quality Tier */}
-                  <div className="pt-2 border-t border-stone-800">
-                    <span className="block text-xs md:text-sm text-stone-300 font-medium mb-2">
+                  <div>
+                    <span className="block text-xs text-stone-300 font-medium mb-1.5">
                       {t.controls.qualityTier}
                     </span>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-4 gap-1.5">
                       {(['auto', 'low', 'mid', 'high'] as QualityTier[]).map((tier) => (
                         <button
                           key={tier}
                           type="button"
                           onClick={() => updateField('qualityTier', tier)}
-                          className={`py-2 px-2.5 rounded-lg text-xs font-semibold uppercase transition-colors ${
+                          className={`py-1.5 px-2 rounded-lg text-xs font-semibold uppercase transition-colors ${
                             settings.qualityTier === tier
                               ? 'bg-amber-500 text-stone-950'
                               : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
@@ -570,28 +530,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ))}
                     </div>
                   </div>
+
+                  <div>
+                    <span className="block text-xs text-stone-300 font-medium mb-1.5">
+                      {t.controls.fireplaceQuality}
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { id: 'maximum', label: 'Maximum' },
+                          { id: 'high', label: 'High' },
+                          { id: 'automatic', label: 'Auto (TV Safe)' },
+                        ] as { id: FireplaceQualityPreset; label: string }[]
+                      ).map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => updateField('fireplaceQuality', preset.id)}
+                          className={`py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors ${
+                            settings.fireplaceQuality === preset.id
+                              ? 'bg-amber-500 text-stone-950'
+                              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-stone-800">
+                    <span className="text-xs text-stone-300 font-medium">
+                      {t.controls.showDiagnostics}
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={settings.showDiagnostics}
+                      aria-label={t.controls.showDiagnostics}
+                      onClick={() => updateField('showDiagnostics', !settings.showDiagnostics)}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                        settings.showDiagnostics
+                          ? 'bg-amber-500 text-stone-950'
+                          : 'bg-stone-800 text-stone-400'
+                      }`}
+                    >
+                      {settings.showDiagnostics ? 'Shown' : 'Hidden'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'audio' && (
-            <div className="space-y-6">
-              {/* Top Master Audio & Open-Source CC0 Toggle */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-stone-900/70 p-5 rounded-xl border border-stone-800">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-stone-900/70 p-4 rounded-xl border border-stone-800">
                 <div className="flex items-center justify-between md:border-r md:border-stone-800 md:pr-4">
                   <div>
                     <div className="text-sm font-semibold text-stone-100">
                       {t.controls.masterAudio}
                     </div>
-                    <div className="text-xs text-stone-400">
-                      Zero MIDI · 48kHz Acoustic PCM + CC0
-                    </div>
+                    <div className="text-xs text-stone-400">48kHz Acoustic Soundscape</div>
                   </div>
                   <button
                     type="button"
                     onClick={() => updateField('masterAudio', !settings.masterAudio)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold ${
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
                       settings.masterAudio
                         ? 'bg-emerald-500 text-stone-950'
                         : 'bg-stone-800 text-stone-300'
@@ -612,11 +617,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="md:border-r md:border-stone-800 md:px-4">
-                  <div className="flex justify-between text-xs md:text-sm mb-1.5">
+                  <div className="flex justify-between text-xs mb-1">
                     <label htmlFor="slider-master-volume" className="text-stone-200 font-medium">
                       {t.controls.masterVolume}
                     </label>
-                    <span className="font-mono tabular-nums text-amber-400">
+                    <span className="font-mono text-amber-400">
                       {Math.round(settings.masterVolume * 100)}%
                     </span>
                   </div>
@@ -633,58 +638,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between md:pl-2">
-                  <div>
-                    <div className="text-sm font-semibold text-stone-100">
-                      {t.controls.openSourceStreams}
-                    </div>
-                    <div className="text-xs text-stone-400">
-                      Wikimedia Commons CC0 OGG
-                    </div>
-                  </div>
+                  <span className="text-xs font-medium text-stone-200">
+                    {t.controls.openSourceStreams}
+                  </span>
                   <button
                     type="button"
                     onClick={() => updateField('openSourceStreams', !settings.openSourceStreams)}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-semibold ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
                       settings.openSourceStreams
                         ? 'bg-amber-500 text-stone-950'
                         : 'bg-stone-800 text-stone-400'
                     }`}
                   >
-                    {settings.openSourceStreams ? 'Enabled' : 'PCM Only'}
+                    {settings.openSourceStreams ? 'Enabled' : 'Synth Only'}
                   </button>
                 </div>
               </div>
 
-              {/* 6-Channel Independent Spatial Audio Mixer */}
-              <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-stone-200">
-                    6-Channel Natural Soundscape Mixer (Layer Fire + Rain + Thunder + Wind)
+              <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400">
+                    Soundscape Channel Mixer
                   </h3>
                   <button
                     type="button"
                     onClick={onTriggerThunder}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30"
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    <span>Test Rolling Thunder</span>
+                    <span>Test Thunder</span>
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
                   {(Object.keys(settings.audioChannels) as (keyof AudioMixChannels)[]).map(
                     (chKey) => {
                       const val = settings.audioChannels[chKey];
                       return (
                         <div key={chKey}>
-                          <div className="flex justify-between text-xs md:text-sm mb-1.5">
+                          <div className="flex justify-between text-xs mb-1">
                             <label
                               htmlFor={`audio-ch-${chKey}`}
                               className="text-stone-300 font-medium"
                             >
                               {t.channels[chKey]}
                             </label>
-                            <span className="font-mono tabular-nums text-amber-400">
+                            <span className="font-mono text-amber-400">
                               {Math.round(val * 100)}%
                             </span>
                           </div>
@@ -704,46 +703,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
               </div>
-
-              {/* Open-Source Audio Asset Provenance */}
-              <div className="bg-stone-900/50 p-4 rounded-xl border border-stone-800/80">
-                <div className="text-xs font-semibold text-stone-300 mb-2">
-                  Open-Source Field Recording Assets &amp; Acoustic Architecture (MIDI Strictly Forbidden)
-                </div>
-                <div className="space-y-1.5">
-                  {currentSceneMeta.openSourceAssets.map((asset, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-400"
-                    >
-                      <span>{asset.label}</span>
-                      <span className="font-mono text-stone-500">
-                        {asset.license} · {asset.url.split('/').pop()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 
           {activeTab === 'display' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Clock & Timers */}
-              <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4">
+              <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3.5">
                 <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
                   <Clock className="w-4 h-4" />
-                  <span>10-Foot TV Clock, Auto-Cycle &amp; Sleep Timer</span>
+                  <span>TV Clock &amp; Timers</span>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs md:text-sm text-stone-300 font-medium">
+                  <span className="text-xs text-stone-300 font-medium">
                     {t.controls.showClock}
                   </span>
                   <button
                     type="button"
                     onClick={() => updateField('showClock', !settings.showClock)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold ${
                       settings.showClock
                         ? 'bg-amber-500 text-stone-950'
                         : 'bg-stone-800 text-stone-400'
@@ -754,16 +733,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs md:text-sm text-stone-300 font-medium">
+                  <span className="text-xs text-stone-300 font-medium">
                     {t.controls.clockFormat}
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
                     {(['24h', '12h'] as const).map((fmt) => (
                       <button
                         key={fmt}
                         type="button"
                         onClick={() => updateField('clockFormat', fmt)}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold ${
                           settings.clockFormat === fmt
                             ? 'bg-amber-500 text-stone-950'
                             : 'bg-stone-800 text-stone-300'
@@ -776,30 +755,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs md:text-sm text-stone-300 font-medium">
-                    {t.controls.showSeconds}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => updateField('showSeconds', !settings.showSeconds)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
-                      settings.showSeconds
-                        ? 'bg-amber-500 text-stone-950'
-                        : 'bg-stone-800 text-stone-400'
-                    }`}
-                  >
-                    {settings.showSeconds ? 'Shown' : 'Hidden'}
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-xs md:text-sm text-stone-300 font-medium">
+                  <span className="text-xs text-stone-300 font-medium">
                     {t.controls.showDate}
                   </span>
                   <button
                     type="button"
                     onClick={() => updateField('showDate', !settings.showDate)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold ${
                       settings.showDate
                         ? 'bg-amber-500 text-stone-950'
                         : 'bg-stone-800 text-stone-400'
@@ -809,12 +771,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                {/* Auto-Cycle Interval */}
                 <div className="pt-2 border-t border-stone-800">
-                  <span className="block text-xs md:text-sm text-stone-300 font-medium mb-2">
+                  <span className="block text-xs text-stone-300 font-medium mb-1.5">
                     {t.controls.autoCycleMinutes}
                   </span>
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-5 gap-1.5">
                     {[0, 1, 5, 15, 30].map((mins) => (
                       <button
                         key={mins}
@@ -832,12 +793,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Sleep Timer */}
                 <div>
-                  <span className="block text-xs md:text-sm text-stone-300 font-medium mb-2">
+                  <span className="block text-xs text-stone-300 font-medium mb-1.5">
                     {t.controls.sleepTimerMinutes}
                   </span>
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-5 gap-1.5">
                     {[0, 15, 30, 60, 120].map((mins) => (
                       <button
                         key={mins}
@@ -857,20 +817,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* OLED Care & Color Temperature */}
-              <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4">
+              <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-3.5">
                 <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Samsung TV OLED Protection &amp; Night Shift</span>
+                  <span>TV OLED Protection &amp; Night Shift</span>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs md:text-sm text-stone-300 font-medium">
+                  <span className="text-xs text-stone-300 font-medium">
                     {t.controls.burnInProtection}
                   </span>
                   <button
                     type="button"
                     onClick={() => updateField('burnInProtection', !settings.burnInProtection)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold ${
                       settings.burnInProtection
                         ? 'bg-emerald-500 text-stone-950'
                         : 'bg-stone-800 text-stone-400'
@@ -881,32 +841,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-xs md:text-sm mb-1.5">
-                    <label htmlFor="slider-orbit-range" className="text-stone-300 font-medium">
-                      {t.controls.pixelOrbitRange}
-                    </label>
-                    <span className="font-mono tabular-nums text-emerald-400">
-                      ±{settings.pixelOrbitRange}px
-                    </span>
-                  </div>
-                  <input
-                    id="slider-orbit-range"
-                    type="range"
-                    min="0"
-                    max="28"
-                    step="2"
-                    value={settings.pixelOrbitRange}
-                    onChange={(e) => updateField('pixelOrbitRange', parseInt(e.target.value, 10))}
-                    className="w-full accent-emerald-500 h-2 bg-stone-800 rounded-lg cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs md:text-sm mb-1.5">
+                  <div className="flex justify-between text-xs mb-1">
                     <label htmlFor="slider-peak-lum" className="text-stone-300 font-medium">
                       {t.controls.peakLuminance}
                     </label>
-                    <span className="font-mono tabular-nums text-emerald-400">
+                    <span className="font-mono text-emerald-400">
                       {settings.peakLuminance}%
                     </span>
                   </div>
@@ -922,12 +861,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                 </div>
 
-                {/* Color Temperature */}
                 <div className="pt-2 border-t border-stone-800">
-                  <span className="block text-xs md:text-sm text-stone-300 font-medium mb-2">
+                  <span className="block text-xs text-stone-300 font-medium mb-1.5">
                     {t.controls.colorTemp}
                   </span>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-1.5">
                     {(
                       [
                         { id: 'natural', label: 'Natural Studio' },
@@ -940,7 +878,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         key={ct.id}
                         type="button"
                         onClick={() => updateField('colorTemp', ct.id)}
-                        className={`py-2 px-3 rounded-lg text-xs font-semibold ${
+                        className={`py-1.5 px-2.5 rounded-lg text-xs font-semibold ${
                           settings.colorTemp === ct.id
                             ? 'bg-amber-500 text-stone-950'
                             : 'bg-stone-800 text-stone-300'
@@ -956,174 +894,109 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {activeTab === 'mypc' && (
-            <div className="space-y-5">
-              <div className="bg-stone-900/70 p-5 rounded-xl border border-stone-800 space-y-3">
-                <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
-                  <Tv className="w-4 h-4" />
-                  <span>MyPC OS Screensaver Settings Integration (Ready for Control Panel)</span>
-                </div>
-                <p className="text-xs md:text-sm text-stone-300 leading-relaxed">
-                  This app is built natively on the <strong>My PC SDK v1</strong> and supports three
-                  flexible invocation modes from your MyPC Screensaver Settings page: URL query
-                  parameters, <code className="text-amber-300">MyPC.app_config</code> /{' '}
-                  <code className="text-amber-300">MyPC.launch</code> deep links, and live{' '}
-                  <code className="text-amber-300">postMessage</code> updates.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                  {/* URL 1: Fullscreen Screensaver Mode */}
-                  <div className="p-3.5 rounded-lg bg-stone-950 border border-stone-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-amber-400">
-                        1. Idle Screensaver Launch URL
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => copyText('ssUrl', screensaverLaunchUrl)}
-                        className="flex items-center gap-1 text-xs text-stone-300 hover:text-white"
-                      >
-                        {copiedKey === 'ssUrl' ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                        <span>{copiedKey === 'ssUrl' ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
-                    <div className="text-[11px] font-mono text-stone-400 break-all bg-stone-900 p-2 rounded">
-                      {screensaverLaunchUrl}
-                    </div>
-                  </div>
-
-                  {/* URL 2: Open Built-in Settings Page Directly */}
-                  <div className="p-3.5 rounded-lg bg-stone-950 border border-stone-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-sky-400">
-                        2. Open Settings Page Directly
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => copyText('cfgUrl', settingsLaunchUrl)}
-                        className="flex items-center gap-1 text-xs text-stone-300 hover:text-white"
-                      >
-                        {copiedKey === 'cfgUrl' ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                        <span>{copiedKey === 'cfgUrl' ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
-                    <div className="text-[11px] font-mono text-stone-400 break-all bg-stone-900 p-2 rounded">
-                      {settingsLaunchUrl}
-                    </div>
-                  </div>
-
-                  {/* URL 3: Silent Preview Iframe */}
-                  <div className="p-3.5 rounded-lg bg-stone-950 border border-stone-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-emerald-400">
-                        3. Control Panel Mini-Preview
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => copyText('prevUrl', previewLaunchUrl + '&mute=1')}
-                        className="flex items-center gap-1 text-xs text-stone-300 hover:text-white"
-                      >
-                        {copiedKey === 'prevUrl' ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                        <span>{copiedKey === 'prevUrl' ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
-                    <div className="text-[11px] font-mono text-stone-400 break-all bg-stone-900 p-2 rounded">
-                      {previewLaunchUrl}&amp;mute=1
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* PostMessage & Deep Link Code Reference */}
+            <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-2">
+                <div className="p-4 rounded-xl bg-stone-900/70 border border-stone-800 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-stone-200">
-                      Live postMessage API (From MyPC Settings Page to Iframe)
-                    </span>
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <pre className="text-[11px] font-mono text-stone-300 bg-stone-950 p-3 rounded-lg overflow-x-auto">
-{`// Dynamically change scene or open settings from MyPC:
-screensaverFrame.contentWindow.postMessage({
-  mypc_screensaver: 1,
-  type: 'applySettings', // or 'openSettings' | 'closeSettings'
-  settings: {
-    scene: '${settings.scene}',
-    fireIntensity: ${settings.fireIntensity},
-    clockFormat: '${settings.clockFormat}'
-  }
-}, '*');`}
-                  </pre>
-                </div>
-
-                <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-stone-200">
-                      Current Exportable MyPC.app_config JSON
+                    <span className="text-xs font-semibold text-amber-400">
+                      Idle Screensaver Launch URL
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
-                        copyText('jsonCfg', JSON.stringify(settings, null, 2))
-                      }
-                      className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300"
+                      onClick={() => copyText('ssUrl', screensaverLaunchUrl)}
+                      className="flex items-center gap-1 text-xs text-stone-300 hover:text-white"
                     >
-                      {copiedKey === 'jsonCfg' ? (
-                        <Check className="w-3.5 h-3.5" />
+                      {copiedKey === 'ssUrl' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
                       ) : (
                         <Copy className="w-3.5 h-3.5" />
                       )}
-                      <span>{copiedKey === 'jsonCfg' ? 'Copied JSON' : 'Copy JSON'}</span>
+                      <span>{copiedKey === 'ssUrl' ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
-                  <pre className="text-[11px] font-mono text-stone-300 bg-stone-950 p-3 rounded-lg max-h-36 overflow-y-auto">
-                    {JSON.stringify(
-                      {
-                        scene: settings.scene,
-                        clockFormat: settings.clockFormat,
-                        fireIntensity: settings.fireIntensity,
-                        emberDensity: settings.emberDensity,
-                        rainIntensity: settings.rainIntensity,
-                        burnInProtection: settings.burnInProtection,
-                        videos:
-                          settings.videos.length > 0
-                            ? settings.videos.map((v) => ({
-                                uri: v.uri,
-                                title: v.title,
-                                type: v.type,
-                                audioMode: v.audioMode,
-                                sizeMb: v.sizeBytes
-                                  ? Math.round(v.sizeBytes / (1024 * 1024))
-                                  : 48,
-                              }))
-                            : {
-                                uri: 'drive://YOUR_DRIVE_FILE_ID',
-                                title: 'fire 4k',
-                                type: 'hearth',
-                                audioMode: 'both',
-                                sizeMb: 48,
-                              },
-                      },
-                      null,
-                      2
-                    )}
-                  </pre>
+                  <div className="text-[11px] font-mono text-stone-400 break-all bg-stone-950 p-2.5 rounded">
+                    {screensaverLaunchUrl}
+                  </div>
                 </div>
+
+                <div className="p-4 rounded-xl bg-stone-900/70 border border-stone-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-sky-400">
+                      Direct Settings Launch URL
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyText('cfgUrl', settingsLaunchUrl)}
+                      className="flex items-center gap-1 text-xs text-stone-300 hover:text-white"
+                    >
+                      {copiedKey === 'cfgUrl' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedKey === 'cfgUrl' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                  <div className="text-[11px] font-mono text-stone-400 break-all bg-stone-950 p-2.5 rounded">
+                    {settingsLaunchUrl}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-stone-900/60 p-4 rounded-xl border border-stone-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-stone-200">
+                    Exportable MyPC.app_config JSON
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyText('jsonCfg', JSON.stringify(settings, null, 2))}
+                    className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300"
+                  >
+                    {copiedKey === 'jsonCfg' ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedKey === 'jsonCfg' ? 'Copied JSON' : 'Copy JSON'}</span>
+                  </button>
+                </div>
+                <pre className="text-[11px] font-mono text-stone-300 bg-stone-950 p-3 rounded-lg max-h-40 overflow-y-auto">
+                  {JSON.stringify(
+                    {
+                      scene: settings.scene,
+                      viewMode: settings.viewMode,
+                      fireEffectStyle: settings.fireEffectStyle,
+                      fireplaceQuality: settings.fireplaceQuality,
+                      clockFormat: settings.clockFormat,
+                      fireIntensity: settings.fireIntensity,
+                      emberDensity: settings.emberDensity,
+                      burnInProtection: settings.burnInProtection,
+                      videos: settings.videos.map((v) => ({
+                        uri: v.uri,
+                        title: v.title,
+                        type: v.type,
+                        audioMode: v.audioMode,
+                      })),
+                    },
+                    null,
+                    2
+                  )}
+                </pre>
               </div>
             </div>
           )}
+        </div>
+
+        {/* Concise TV Remote / Gamepad Footer */}
+        <div className="px-5 py-2.5 bg-stone-950 border-t border-stone-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-400">
+          <div className="flex items-center gap-2">
+            <Tv className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>
+              <strong className="text-stone-200">TV Remote / Gamepad:</strong> D-Pad Moves Focus · OK/B Selects · Esc/A Closes
+            </span>
+          </div>
+          <span className="font-mono text-stone-500">Hearth &amp; Horizon v{APP_VERSION}</span>
         </div>
       </div>
     </div>

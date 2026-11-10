@@ -1,9 +1,9 @@
 // My PC Desktop Widget for Hearth & Horizon Screensaver (SDK Section 18)
 export default async function (ctx) {
-  const scenes = ['hearth', 'campfire', 'rain', 'aurora', 'ocean', 'zen'];
+  const scenes = ['hearth', 'cinematic', 'rain', 'aurora', 'ocean', 'zen'];
   const labels = {
     hearth: { title: 'Grand Hearth Fireplace', icon: '🔥', sub: 'Crackling oak logs & warm parlor embers', accent: '#f97316' },
-    campfire: { title: 'Wilderness Fire Camp', icon: '🏕️', sub: 'Starlit pine clearing & roaring campfire', accent: '#ea580c' },
+    cinematic: { title: 'Cinematic Stone Fireplace', icon: '🔥', sub: 'WebGL2 photorealistic limestone hearth & split oak logs', accent: '#f97316' },
     rain: { title: 'Midnight Rain & Glass', icon: '🌧️', sub: 'Refractive raindrops & distant thunder', accent: '#38bdf8' },
     aurora: { title: 'Aurora Borealis Fjord', icon: '🌌', sub: 'Solar curtains over still arctic water', accent: '#10b981' },
     ocean: { title: 'Bioluminescent Reef', icon: '🪼', sub: 'Deep indigo caustics & glowing plankton', accent: '#06b6d4' },

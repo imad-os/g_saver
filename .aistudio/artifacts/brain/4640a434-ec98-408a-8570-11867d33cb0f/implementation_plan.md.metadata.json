@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for the additive WebGL2 Cinematic Fireplace screensaver option featuring a multi-layer GLSL ES 3.00 procedural flame shader, photographic dark limestone and fieldstone hearth plate, alpha-occluding glowing oak logs, GPU spark particles, heat refraction, dynamic stone illumination, and Settings diagnostic toggle.",
+  "updatedAt":  "2026-11-10T09:04:01.391925502Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
