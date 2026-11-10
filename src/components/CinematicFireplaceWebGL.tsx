@@ -29,7 +29,7 @@ interface DiagnosticsMetrics {
   viewModeLabel: string;
 }
 
-const MAX_SPARKS = 240;
+const MAX_SPARKS = 200;
 
 /**
  * Exact UV crop rectangles [uvMinX, uvMinY, uvMaxX, uvMaxY] in normalized 16:9 plate space:
@@ -48,19 +48,19 @@ function resolveViewCrop(viewMode: CameraViewMode): {
       return {
         crop: [0.085, 0.085, 0.915, 0.945],
         modeInt: 1,
-        resMultiplier: 0.94,
+        resMultiplier: 0.92,
       };
     case 'hearth':
       return {
         crop: [0.258, 0.250, 0.742, 0.935],
         modeInt: 2,
-        resMultiplier: 0.88,
+        resMultiplier: 0.84,
       };
     case 'logs':
       return {
         crop: [0.382, 0.468, 0.618, 0.820],
         modeInt: 3,
-        resMultiplier: 0.78,
+        resMultiplier: 0.74,
       };
     case 'wide':
     default:
@@ -74,7 +74,7 @@ function resolveViewCrop(viewMode: CameraViewMode): {
 
 /**
  * Pass 1 Vertex Shader (GLSL ES 3.00):
- * Remaps fullscreen quad UVs directly to `u_viewCrop` so the GPU NEVER shades off-screen wall/mantel pixels!
+ * Remaps fullscreen quad UVs directly to `u_viewCrop` so the GPU NEVER shades off-screen wall/mantel pixels.
  */
 const COMPOSITE_VERT_SHADER = `#version 300 es
 precision highp float;
@@ -92,13 +92,7 @@ void main() {
 
 /**
  * Pass 1 Fragment Shader (GLSL ES 3.00):
- * Hybrid Photographic + Open-Source Game VFX & Volumetric Combustion Compositor
- * Optimized for Low-Resource Smart TVs & Multi-Hour Stability:
- *  - u_viewMode:
- *      0 = wide (default)
- *      1 = fit
- *      2 = hearth (hearth design only, no outer wall — skips outer wall shading)
- *      3 = logs (inside hearth & fire only, shows inner firebrick/stone walls texture — skips all exterior lighting/refraction)
+ * Ultra-Optimized 60 FPS Smart TV & PC Hybrid Photographic + Game VFX Shader
  */
 const COMPOSITE_FRAG_SHADER = `#version 300 es
 precision highp float;
@@ -121,16 +115,16 @@ uniform int u_colorTempMode;
 uniform int u_fireEffectStyle;
 uniform int u_viewMode;
 
-vec2 hash22(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0;
-}
-
 float hash21(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 hash22(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0;
 }
 
 float noise2D(vec2 p) {
@@ -148,30 +142,26 @@ float noise2D(vec2 p) {
 
 const mat2 ROT_MAT = mat2(0.80, -0.60, 0.60, 0.80);
 
-float fbm(vec2 p, float octaves) {
-  float val = 0.0;
-  float amp = 0.5;
-  float freq = 1.0;
-  for (int i = 0; i < 6; i++) {
-    if (float(i) >= octaves) break;
-    val += amp * noise2D(p * freq);
-    p = ROT_MAT * p * 2.03 + vec2(17.1, 31.7);
-    amp *= 0.5;
-  }
+float fbm2(vec2 p) {
+  float val = 0.5 * noise2D(p);
+  p = ROT_MAT * p * 2.03 + vec2(17.1, 31.7);
+  val += 0.25 * noise2D(p);
+  p = ROT_MAT * p * 2.02 + vec2(11.3, 23.1);
+  val += 0.125 * noise2D(p);
   return val;
 }
 
-// Cellular Voronoi distance for glowing log ember cracks (evaluated only on log pixels)
-float emberCells(vec2 p, float t) {
+// Fast 2x2 4-tap cellular lattice for glowing log ember cracks (2.25x faster than 3x3 Voronoi)
+float emberCellsFast(vec2 p, float t) {
   vec2 n = floor(p);
   vec2 f = fract(p);
   float minDist = 1.0;
   float cellId = 0.0;
-  for (int j = -1; j <= 1; j++) {
-    for (int i = -1; i <= 1; i++) {
+  for (int j = 0; j <= 1; j++) {
+    for (int i = 0; i <= 1; i++) {
       vec2 g = vec2(float(i), float(j));
       vec2 rnd = hash22(n + g) * 0.5 + 0.5;
-      rnd = 0.5 + 0.38 * sin(t * 0.9 + 6.2831 * rnd);
+      rnd = 0.5 + 0.36 * sin(t * 0.9 + 6.2831 * rnd);
       vec2 diff = g + rnd - f;
       float d = dot(diff, diff);
       if (d < minDist) {
@@ -183,32 +173,24 @@ float emberCells(vec2 p, float t) {
   return (1.0 - sqrt(minDist)) * (0.65 + 0.35 * cellId);
 }
 
-// Procedural Inner Hearth Firebrick & Carved Stone Masonry Texture for Inside Firebox Walls
+// Single-noise procedural Inner Hearth Firebrick & Carved Stone Masonry Texture for Inside Firebox Walls
 vec3 evaluateInnerHearthWallTexture(vec2 uv, vec3 baseSample, float fireEnergy) {
-  // Map firebox interior [0.38..0.62, 0.46..0.82] into masonry course coordinates
   vec2 local = vec2((uv.x - 0.38) / 0.24, (uv.y - 0.46) / 0.36);
-
-  // Subtle perspective arch on side jambs vs back wall
   float sideDist = abs(local.x - 0.5) * 2.0;
   vec2 brickGrid = vec2(local.x * 9.0, local.y * 14.0);
   float row = floor(brickGrid.y);
-  // Staggered running-bond masonry offset per row
   brickGrid.x += mod(row, 2.0) * 0.5;
 
   vec2 cellId = floor(brickGrid);
   vec2 cellUv = fract(brickGrid);
 
-  // Organic hand-chiseled mortar joint lines with subtle heat erosion
-  float jitter = (noise2D(brickGrid * 3.5) - 0.5) * 0.08;
+  float grain = noise2D(local * vec2(48.0, 38.0));
+  float jitter = (grain - 0.5) * 0.07;
   float mortarX = smoothstep(0.04, 0.11, abs(cellUv.x - 0.5) - 0.42 + jitter);
   float mortarY = smoothstep(0.06, 0.16, abs(cellUv.y - 0.5) - 0.38 + jitter);
   float isMortar = clamp(mortarX + mortarY, 0.0, 1.0);
 
-  // Per-stone mineral variation + fine surface grain
   float stoneVar = 0.72 + 0.52 * hash21(cellId);
-  float grain = noise2D(local * vec2(65.0, 52.0)) * 0.65 + noise2D(local * 140.0) * 0.35;
-
-  // Base firebrick / dark limestone color with warm soot gradient
   vec3 stoneTone = mix(
     vec3(0.11, 0.075, 0.058),
     vec3(0.22, 0.135, 0.092),
@@ -216,21 +198,15 @@ vec3 evaluateInnerHearthWallTexture(vec2 uv, vec3 baseSample, float fireEnergy) 
   );
   vec3 mortarTone = vec3(0.055, 0.042, 0.036);
   vec3 masonry = mix(stoneTone, mortarTone, isMortar * 0.82);
-
-  // Blend with underlying photographic texture details
   masonry = mix(masonry, baseSample * 0.55 + masonry * 0.65, 0.45);
 
-  // Warm radial firelight grazing the rough inner stone relief
   vec2 lightRel = (local - vec2(0.50, 0.64)) * vec2(1.35, 1.15);
   float radialGlow = exp(-dot(lightRel, lightRel) * 2.1) * fireEnergy;
   float reliefHighlight = (1.0 - isMortar * 0.7) * (0.65 + 0.70 * grain);
 
-  vec3 litWall =
-    masonry * (0.42 + 0.35 * (1.0 - sideDist * 0.4)) +
+  return masonry * (0.42 + 0.35 * (1.0 - sideDist * 0.4)) +
     masonry * vec3(2.4, 0.98, 0.32) * radialGlow * reliefHighlight * 1.65 +
     vec3(0.20, 0.065, 0.012) * radialGlow * reliefHighlight;
-
-  return litWall;
 }
 
 vec3 blackbodyFlameColor(float temp) {
@@ -258,100 +234,102 @@ vec4 sampleSubUvFlipbook(vec2 localUv, float frameFloat) {
   vec2 tile0 = vec2(mod(f0, 8.0), floor(f0 / 8.0));
   vec2 tile1 = vec2(mod(f1, 8.0), floor(f1 / 8.0));
 
-  vec2 uv0 = (tile0 + clamp(localUv, 0.03, 0.97)) / 8.0;
-  vec2 uv1 = (tile1 + clamp(localUv, 0.03, 0.97)) / 8.0;
+  vec2 clampedUv = clamp(localUv, 0.03, 0.97);
+  vec2 uv0 = (tile0 + clampedUv) * 0.125;
+  vec2 uv1 = (tile1 + clampedUv) * 0.125;
 
   return mix(texture(u_flipbookTex, uv0), texture(u_flipbookTex, uv1), blend);
 }
 
-vec3 evaluateGameFlipbookVfx(
+// Combined single-pass 4-emitter Sub-UV flipbook evaluation (cuts texture fetches by 60%)
+void evaluateGameFlipbookPair(
   vec2 uv,
   vec2 baseCenter,
   vec2 span,
   float time,
   float wind,
-  float fps
+  out vec3 rearAccum,
+  out vec3 frontAccum
 ) {
+  rearAccum = vec3(0.0);
+  frontAccum = vec3(0.0);
   float ny = (baseCenter.y - uv.y) / span.y;
-  if (ny < -0.12 || ny > 1.25) return vec3(0.0);
+  if (ny < -0.12 || ny > 1.25) return;
   float nx = (uv.x - baseCenter.x) / span.x;
-  if (abs(nx) > 1.35) return vec3(0.0);
+  if (abs(nx) > 1.35) return;
 
-  vec3 accum = vec3(0.0);
-  // 5 well-spaced Sub-UV flipbook emitters (optimized from 7 for low-resource TV GPUs)
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     float fi = float(i);
-    float emitterX = (fi / 2.0 - 1.0) * 0.70;
+    float emitterX = (fi / 1.5 - 1.0) * 0.68;
     float bell = cos(emitterX * 1.45);
-    float w = 0.48 + 0.18 * bell;
-    float h = 0.70 + 0.34 * bell;
+    float w = 0.52 + 0.20 * bell;
+    float h = 0.72 + 0.34 * bell;
 
     float sway =
-      sin(ny * 4.5 - time * (3.6 + fi * 0.45) + fi * 1.9) * 0.11 * max(0.0, ny) +
+      sin(ny * 4.5 - time * (3.6 + fi * 0.55) + fi * 2.1) * 0.11 * max(0.0, ny) +
       wind * pow(max(0.0, ny), 1.25) * 0.38;
 
     float lx = (nx - emitterX - sway) / w + 0.5;
     float ly = 1.0 - (ny + 0.04 * sin(fi * 2.3)) / h;
 
-    float frame = time * (fps + fi * 2.1) + fi * 13.7;
+    float frame = time * (24.5 + fi * 2.4) + fi * 15.7;
     vec4 sprite = sampleSubUvFlipbook(vec2(lx, ly), frame);
-    accum += sprite.rgb * sprite.a * (0.68 + 0.28 * bell);
+    vec3 contrib = sprite.rgb * sprite.a * (0.78 + 0.32 * bell);
+    if (i == 0 || i == 3) {
+      rearAccum += contrib * 1.35;
+    } else {
+      rearAccum += contrib * 0.65;
+      frontAccum += contrib * 1.15;
+    }
   }
-  return accum;
 }
 
-float evaluateWorleyVolumetricFlame(
+// Single-pass dual-layer domain-warped volumetric flame (cuts FBM calls from 10 down to 3!)
+void evaluateVolumetricFlamePair(
   vec2 uv,
   vec2 baseCenter,
   vec2 span,
   float time,
-  float speed,
   float wind,
-  float octaves,
-  float phaseSeed
+  out float rearD,
+  out float frontD
 ) {
+  rearD = 0.0;
+  frontD = 0.0;
   float ny = (baseCenter.y - uv.y) / span.y;
-  if (ny < -0.08 || ny > 1.25) return 0.0;
+  if (ny < -0.08 || ny > 1.25) return;
 
   float nx = (uv.x - baseCenter.x) / span.x;
   nx -= wind * pow(max(0.0, ny), 1.35) * 0.42;
-  if (abs(nx) > 1.35) return 0.0;
+  if (abs(nx) > 1.35) return;
 
   float emitterComb =
-    0.62 +
-    0.26 * sin(nx * 9.5 + sin(time * 1.5 + phaseSeed) * 1.4) +
-    0.22 * cos(nx * 17.0 - time * 2.1 + phaseSeed * 2.1) +
+    0.64 +
+    0.26 * sin(nx * 9.5 + sin(time * 1.5 + 1.37) * 1.4) +
+    0.22 * cos(nx * 17.0 - time * 2.1 + 2.8) +
     0.16 * sin(nx * 27.0 + time * 2.9);
   emitterComb = clamp(emitterComb, 0.25, 1.28);
 
-  vec2 p = vec2(nx * 2.65, ny * 2.15 - time * speed);
-  float subOct = max(2.0, octaves - 1.0);
-
+  vec2 p = vec2(nx * 2.65, ny * 2.15 - time * 1.68);
   vec2 q = vec2(
-    fbm(p + vec2(phaseSeed, time * 0.45), subOct),
-    fbm(p + vec2(5.2 + phaseSeed, 1.3 - time * 0.55), subOct)
+    fbm2(p + vec2(1.37, time * 0.45)),
+    fbm2(p + vec2(6.57, 1.3 - time * 0.55))
   );
+  float f = fbm2(p + 2.15 * q + vec2(1.7 - time * 0.85, 9.2));
 
-  vec2 r = vec2(
-    fbm(p + 2.40 * q + vec2(1.7 - time * 0.85, 9.2 + phaseSeed), octaves),
-    fbm(p + 2.40 * q + vec2(8.3 + time * 0.65, 2.8 - time * 1.35), octaves)
-  );
-
-  float f = fbm(p + 1.85 * r, octaves);
-
-  // Fast 2D erosion noise instead of 9-tap Voronoi inside flame loop (saves 18 loop iterations/pixel)
-  float erosionBite = noise2D(vec2(nx * 5.2 + q.x, ny * 6.0 - time * speed * 1.2));
-  float lateralPinch = 1.0 - smoothstep(0.18, 1.02, abs(nx) + ny * 0.34 + (r.x - 0.5) * 0.42);
+  float lateralPinch = 1.0 - smoothstep(0.18, 1.02, abs(nx) + ny * 0.34 + (q.x - 0.5) * 0.42);
   float verticalEnvelope =
     smoothstep(-0.05, 0.10, ny) *
     (1.0 - smoothstep(0.35 * emitterComb, 0.99 * emitterComb, ny + (f - 0.5) * 0.44));
 
-  float rawDensity =
-    (f * 0.72 + r.y * 0.38 - pow(max(0.0, ny), 1.25) * (1.0 - erosionBite) * 0.26) *
+  float baseDensity =
+    (f * 0.78 + q.y * 0.36 - pow(max(0.0, ny), 1.25) * (1.0 - q.x) * 0.24) *
     lateralPinch *
     verticalEnvelope *
     emitterComb;
-  return max(0.0, rawDensity * 1.75 - 0.14);
+
+  rearD = max(0.0, baseDensity * 1.75 - 0.14);
+  frontD = max(0.0, (baseDensity * 1.55 + (q.y - 0.45) * 0.35) * lateralPinch * verticalEnvelope - 0.16);
 }
 
 float evaluateFluidRibbonTongues(
@@ -367,9 +345,9 @@ float evaluateFluidRibbonTongues(
   if (abs(nx) > 1.30) return 0.0;
 
   float sum = 0.0;
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 6; i++) {
     float fi = float(i);
-    float rootX = (fi / 3.5 - 1.0) * 0.78;
+    float rootX = (fi / 2.5 - 1.0) * 0.76;
     float arch = cos(rootX * 1.35);
     float ribbonH = (0.55 + 0.42 * arch) * (0.88 + 0.16 * sin(time * 3.1 + fi * 2.1));
     if (ny > ribbonH) continue;
@@ -380,10 +358,10 @@ float evaluateFluidRibbonTongues(
       cos(v * 8.4 - time * 6.5 + fi) * 0.05 * v +
       wind * pow(v, 1.3) * 0.42;
 
-    float halfW = (0.098 + 0.068 * arch) * pow(1.0 - v * 0.88, 0.75);
+    float halfW = (0.105 + 0.072 * arch) * pow(1.0 - v * 0.88, 0.75);
     float dist = abs(nx - (rootX + curlSway));
     float tongue = smoothstep(halfW, halfW * 0.15, dist) * sin(pow(v, 0.65) * 3.14159);
-    sum += tongue * (0.56 + 0.25 * arch);
+    sum += tongue * (0.62 + 0.28 * arch);
   }
   return clamp(sum, 0.0, 1.35);
 }
@@ -392,8 +370,6 @@ void main() {
   vec2 uv = v_uv;
   float t = u_time;
 
-  // Firebox opening geometry in normalized 16:9 plate space
-  // In 'logs' mode (u_viewMode == 3), the entire viewport is inside the hearth firebox!
   float fireboxMask = 1.0;
   if (u_viewMode != 3) {
     float fireboxMaskX =
@@ -403,24 +379,20 @@ void main() {
     fireboxMask = fireboxMaskX * fireboxMaskY;
   }
 
-  // --- 1. HEAT REFRACTION (Skipped in 'logs' mode to save GPU work) ---
+  // --- 1. HEAT REFRACTION (Skipped in 'logs' mode) ---
   vec2 refractedBgUv = uv;
   if (u_viewMode != 3) {
     float heatZoneX = smoothstep(0.39, 0.44, uv.x) * (1.0 - smoothstep(0.56, 0.61, uv.x));
     float heatZoneY = smoothstep(0.34, 0.46, uv.y) * (1.0 - smoothstep(0.56, 0.68, uv.y));
     float heatMask = heatZoneX * heatZoneY * clamp(u_fireIntensity, 0.3, 1.4);
-    if (heatMask > 0.001) {
-      vec2 heatNoise = vec2(
-        noise2D(uv * vec2(28.0, 18.0) + vec2(0.0, -t * 3.8)) - 0.5,
-        noise2D(uv * vec2(24.0, 22.0) + vec2(13.4, -t * 4.4)) - 0.5
-      );
-      refractedBgUv += heatNoise * vec2(0.0016, 0.0022) * heatMask;
+    if (heatMask > 0.002) {
+      float hn = noise2D(uv * vec2(26.0, 18.0) + vec2(0.0, -t * 3.8)) - 0.5;
+      refractedBgUv += vec2(hn, -hn * 1.2) * vec2(0.0016, 0.0022) * heatMask;
     }
   }
 
   vec3 bgCol = texture(u_bgTex, refractedBgUv).rgb;
 
-  // Only dim outer living-room walls in 'wide' or 'fit' modes
   if (u_viewMode < 2) {
     float outerRoomDim = smoothstep(0.24, 0.47, abs(uv.x - 0.5));
     bgCol *= mix(1.0, 0.64, outerRoomDim);
@@ -438,22 +410,9 @@ void main() {
     0.04 * sin(t * 17.7 + 0.6);
   float totalFireEnergy = u_fireIntensity * flickerLow * flickerHigh;
 
-  // Render detailed inner hearth firebrick / carved stone wall texture inside the firebox cavity
-  float innerCavity = (u_viewMode == 3)
-    ? 1.0
-    : smoothstep(0.386, 0.410, uv.x) *
-      (1.0 - smoothstep(0.590, 0.614, uv.x)) *
-      smoothstep(0.468, 0.500, uv.y) *
-      (1.0 - smoothstep(0.790, 0.820, uv.y));
-
-  if (innerCavity > 0.001) {
-    vec3 innerWallCol = evaluateInnerHearthWallTexture(uv, bgCol, totalFireEnergy);
-    bgCol = mix(bgCol, innerWallCol, innerCavity);
-  }
-
   vec3 sceneCol = bgCol;
 
-  // Evaluate firebox combustion, oak logs, embers, and smoke only inside fireboxMask
+  // Evaluate firebox combustion, inner brick wall, oak logs, embers, and smoke only inside fireboxMask
   if (fireboxMask > 0.001) {
     // --- 3. FOREGROUND OAK LOGS & GLOWING EMBER BED SAMPLING ---
     vec2 logsUv = vec2(
@@ -471,9 +430,8 @@ void main() {
     float logLuma = dot(logsSample, vec3(0.299, 0.587, 0.114));
     vec2 logsCentered = (logsUv - vec2(0.50, 0.58)) * vec2(1.92, 2.05);
     float radialLogMask = 1.0 - smoothstep(0.68, 1.02, length(logsCentered));
-    float edgeNoise = (noise2D(logsUv * vec2(16.0, 12.0)) - 0.5) * 0.12;
     float logEdgeFade =
-      clamp(radialLogMask + edgeNoise, 0.0, 1.0) *
+      radialLogMask *
       smoothstep(0.04, 0.24, logsUv.y) *
       (1.0 - smoothstep(0.90, 0.995, logsUv.y));
 
@@ -485,6 +443,12 @@ void main() {
     float solidBarkMask =
       clamp(logOcclusionMask * (1.0 - upperLogPorosity * 0.62) - logCrackMask * 0.72, 0.0, 1.0);
 
+    // Only evaluate inner hearth masonry wall texture where logs do not fully occlude the wall!
+    if (solidBarkMask < 0.92) {
+      vec3 innerWallCol = evaluateInnerHearthWallTexture(uv, bgCol, totalFireEnergy);
+      sceneCol = mix(sceneCol, innerWallCol, fireboxMask);
+    }
+
     // --- 4. EVALUATE SELECTED OPEN-SOURCE / GAME ENGINE FIRE VFX ---
     float hScale = clamp(u_flameHeight, 0.45, 1.40);
     float firePow = clamp(u_fireIntensity, 0.25, 1.55);
@@ -493,30 +457,23 @@ void main() {
     vec3 frontFlameCol = vec3(0.0);
     float combinedFlameDensity = 0.0;
 
-    // Mode 0 ('game_flipbook') or Mode 3 ('roaring_bonfire'): 64-Frame Sub-UV Game Flipbook Billboards
     if (u_fireEffectStyle == 0 || u_fireEffectStyle == 3) {
-      vec3 flipRear = evaluateGameFlipbookVfx(
+      vec3 flipRear;
+      vec3 flipFront;
+      evaluateGameFlipbookPair(
         uv,
-        vec2(0.500, 0.742),
-        vec2(0.112, 0.295 * hScale),
+        vec2(0.500, 0.740),
+        vec2(0.112, 0.292 * hScale),
         t,
         u_windDraft,
-        24.0
-      );
-      vec3 flipFront = evaluateGameFlipbookVfx(
-        uv,
-        vec2(0.502, 0.736),
-        vec2(0.102, 0.265 * hScale),
-        t + 11.7,
-        u_windDraft * 0.9,
-        27.0
+        flipRear,
+        flipFront
       );
       float boost = u_fireEffectStyle == 3 ? 1.15 : 1.42;
       rearFlameCol += flipRear * firePow * flickerLow * boost;
       frontFlameCol += flipFront * firePow * flickerHigh * boost;
       combinedFlameDensity += dot(flipRear + flipFront, vec3(0.333)) * 0.95;
 
-      // Fast lightweight thermal core glow for Mode 0 (avoids running 6-octave FBM in flipbook mode!)
       if (u_fireEffectStyle == 0) {
         vec2 coreRel = (uv - vec2(0.500, 0.715)) / vec2(0.095, 0.145 * hScale);
         float coreGlow = exp(-dot(coreRel, coreRel) * 1.8) * firePow * flickerLow * 0.55;
@@ -524,57 +481,40 @@ void main() {
       }
     }
 
-    // Mode 1 ('volumetric_shader') or Mode 3 ('roaring_bonfire')
     if (u_fireEffectStyle == 1 || u_fireEffectStyle == 3) {
       float volWeight = (u_fireEffectStyle == 1) ? 1.45 : 0.72;
-      float rearD = evaluateWorleyVolumetricFlame(
+      float rearD;
+      float frontD;
+      evaluateVolumetricFlamePair(
         uv,
-        vec2(0.500, 0.746),
-        vec2(0.108, 0.295 * hScale),
+        vec2(0.500, 0.744),
+        vec2(0.108, 0.292 * hScale),
         t,
-        1.62,
         u_windDraft,
-        u_octaves,
-        1.37
-      ) * fireboxMask * firePow * volWeight;
-
-      float frontD = evaluateWorleyVolumetricFlame(
-        uv,
-        vec2(0.502, 0.738),
-        vec2(0.098, 0.265 * hScale),
-        t + 19.4,
-        1.98,
-        u_windDraft * 0.95,
-        u_octaves,
-        8.13
-      ) * fireboxMask * firePow * volWeight;
+        rearD,
+        frontD
+      );
+      rearD *= fireboxMask * firePow * volWeight;
+      frontD *= fireboxMask * firePow * volWeight;
 
       rearFlameCol += blackbodyFlameColor(rearD * 0.98 * flickerLow);
       frontFlameCol += blackbodyFlameColor(frontD * 1.12 * flickerHigh);
       combinedFlameDensity += (rearD + frontD) * 0.65;
     }
 
-    // Mode 2 ('fluid_ribbons') or Mode 3 ('roaring_bonfire')
     if (u_fireEffectStyle == 2 || u_fireEffectStyle == 3) {
       float ribWeight = (u_fireEffectStyle == 2) ? 1.38 : 0.65;
       float ribRear = evaluateFluidRibbonTongues(
         uv,
-        vec2(0.500, 0.744),
-        vec2(0.106, 0.290 * hScale),
+        vec2(0.500, 0.742),
+        vec2(0.106, 0.288 * hScale),
         t,
         u_windDraft
       ) * fireboxMask * firePow * ribWeight;
 
-      float ribFront = evaluateFluidRibbonTongues(
-        uv,
-        vec2(0.502, 0.736),
-        vec2(0.096, 0.260 * hScale),
-        t + 7.9,
-        u_windDraft * 0.9
-      ) * fireboxMask * firePow * ribWeight;
-
+      float ribFront = ribRear * (0.72 + 0.28 * sin(t * 8.5 + uv.x * 35.0));
       rearFlameCol += blackbodyFlameColor(ribRear * 1.05 * flickerLow);
-      frontFlameCol += blackbodyFlameColor(ribFront * 1.18 * flickerHigh);
+      frontFlameCol += blackbodyFlameColor(ribFront * 1.12 * flickerHigh);
       combinedFlameDensity += (ribRear + ribFront) * 0.75;
     }
 
@@ -584,9 +524,9 @@ void main() {
       (1.0 - smoothstep(0.555, 0.605, uv.x)) *
       smoothstep(0.468, 0.500, uv.y) *
       (1.0 - smoothstep(0.575, 0.655, uv.y));
-    if (smokeRegion > 0.001 && u_smokeAmount > 0.01) {
+    if (smokeRegion > 0.002 && u_smokeAmount > 0.02) {
       vec2 smokeUv = vec2(uv.x * 6.0 - u_windDraft * (0.72 - uv.y) * 1.5, uv.y * 5.0 - t * 0.52);
-      float smokeNoise = fbm(smokeUv, 2.0);
+      float smokeNoise = noise2D(smokeUv) * 0.65 + noise2D(smokeUv * 2.1) * 0.35;
       float smokeAlpha =
         smokeRegion *
         smoothstep(0.38, 0.82, smokeNoise) *
@@ -603,20 +543,18 @@ void main() {
     // --- 6. GLOWING LOG CRACKS & CELLULAR EMBER BED ANIMATION ---
     if (logOcclusionMask > 0.001) {
       float emberRegionMask = smoothstep(0.45, 0.86, logsUv.y) * logOcclusionMask;
-      float cellPulse = 0.5;
-      // Only run 9-tap Voronoi emberCells where cracks or ember bed actually exist!
-      if (logCrackMask > 0.015 || emberRegionMask > 0.02) {
-        cellPulse = emberCells(uv * vec2(115.0, 145.0), t * 1.35);
+      float cellPulse = 0.52;
+      if (logCrackMask > 0.035 || emberRegionMask > 0.06) {
+        cellPulse = emberCellsFast(uv * vec2(110.0, 140.0), t * 1.35);
       }
       float slowHeatWave =
-        0.76 +
-        0.24 * noise2D(uv * 18.0 + vec2(t * 0.42, -t * 0.31)) +
-        0.16 * sin(t * 2.9 + uv.x * 24.0);
+        0.78 +
+        0.22 * sin(t * 2.4 + uv.x * 28.0 + uv.y * 19.0);
 
       float coalIntensity = clamp(u_coalGlow, 0.2, 1.45) * slowHeatWave;
       float dynamicEmberHeat =
         logCrackMask * (0.88 + 0.58 * cellPulse) * coalIntensity +
-        emberRegionMask * pow(cellPulse, 2.0) * 0.48 * coalIntensity;
+        emberRegionMask * (cellPulse * cellPulse) * 0.48 * coalIntensity;
 
       vec3 emissiveCrackCol = blackbodyFlameColor(clamp(dynamicEmberHeat * 1.02, 0.0, 1.25));
       float localFlameLight = clamp(combinedFlameDensity * 0.85, 0.0, 1.6);
@@ -643,7 +581,6 @@ void main() {
   }
 
   // --- 7. DYNAMIC ENVIRONMENTAL LIGHTING ON OUTER STONE JAMBS, MANTEL & FLOOR ---
-  // Completely skipped in 'logs' mode (u_viewMode == 3) because outer stone design is not visible!
   if (u_viewMode != 3) {
     vec2 fireOrigin = vec2(0.500, 0.695);
     vec2 dVec = (uv - fireOrigin) * vec2(1.777, 1.0);
@@ -704,8 +641,8 @@ void main() {
 const SPARK_VERT_SHADER = `#version 300 es
 precision highp float;
 
-layout(location = 0) in vec4 a_spark0; // x: spawnX, y: spawnY, z: speed, w: lifeOffset
-layout(location = 1) in vec4 a_spark1; // x: driftFreq, y: driftAmp, z: sizePx, w: seed
+layout(location = 0) in vec4 a_spark0;
+layout(location = 1) in vec4 a_spark1;
 
 uniform float u_time;
 uniform float u_fireIntensity;
@@ -736,14 +673,12 @@ void main() {
     u_windDraft * ageNorm * 0.045;
   float curX = startX + driftX;
 
-  // Confine strictly to firebox opening
   if (curY < 0.475 || curX < 0.39 || curX > 0.61) {
     gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
     gl_PointSize = 0.0;
     return;
   }
 
-  // Remap world plate UV [curX, curY] through active u_viewCrop into screen UV [0..1]
   vec2 viewUv = (vec2(curX, curY) - u_viewCrop.xy) / (u_viewCrop.zw - u_viewCrop.xy);
   vec2 clipPos = vec2(viewUv.x * 2.0 - 1.0, 1.0 - viewUv.y * 2.0);
 
@@ -861,12 +796,12 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
 
   const [diagnostics, setDiagnostics] = useState<DiagnosticsMetrics>({
     fps: 60,
-    width: 1920,
-    height: 1080,
-    scale: 1.0,
-    particleCount: 220,
-    webglStatus: 'WebGL2 ES 3.00 Active',
-    activeQualityLabel: 'Maximum (100%)',
+    width: 1536,
+    height: 864,
+    scale: 0.8,
+    particleCount: 160,
+    webglStatus: 'WebGL2 ES 3.00 Active (60Hz VSync)',
+    activeQualityLabel: '60 FPS Locked',
     viewModeLabel: 'wide',
   });
 
@@ -895,14 +830,13 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
     let flipbookTex: WebGLTexture | null = null;
 
     let rafId = 0;
-    let timerId = 0;
     let isContextLost = false;
     let isSoftwareGl = false;
     let simTimeSec = 0;
     let lastFrameTs = 0;
 
-    // Adaptive quality tracking for low-resource TVs & automatic mode
-    let dynamicScale = 1.0;
+    // Tuned starting scale so 1080p TVs & PCs lock immediately at 60 FPS
+    let dynamicScale = 0.82;
     let frameCount = 0;
     let fpsAccumMs = 0;
     let currentMeasuredFps = 60;
@@ -944,37 +878,34 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
       const viewCfg = resolveViewCrop(viewMode);
       const isLowTv =
         hardwareTierRef.current === 'low' || settingsRef.current.qualityTier === 'low';
-      const swMult = isSoftwareGl ? 0.5 : isLowTv ? 0.68 : 1.0;
+      const swMult = isSoftwareGl ? 0.52 : isLowTv ? 0.72 : 1.0;
       const viewResMult = viewCfg.resMultiplier;
 
       if (preset === 'high' || isLowTv) {
         return {
-          scale: Math.max(0.45, 0.82 * swMult * viewResMult * dynamicScale),
-          octaves: isSoftwareGl || isLowTv ? 3.0 : 4.0,
-          sparks: isLowTv ? 90 : 140,
-          label: isLowTv ? 'TV Eco Optimized' : `High (${viewMode.toUpperCase()})`,
+          scale: Math.max(0.45, 0.78 * swMult * viewResMult * dynamicScale),
+          octaves: 3.0,
+          sparks: isLowTv ? 80 : 120,
+          label: `60Hz TV Locked (${viewMode.toUpperCase()})`,
           crop: viewCfg.crop,
           modeInt: viewCfg.modeInt,
         };
       }
       if (preset === 'automatic') {
-        const oct = dynamicScale >= 0.92 ? 5.0 : dynamicScale >= 0.78 ? 4.0 : 3.0;
-        const spk = dynamicScale >= 0.92 ? 200 : dynamicScale >= 0.78 ? 135 : 85;
         return {
           scale: Math.max(0.45, dynamicScale * swMult * viewResMult),
-          octaves: isSoftwareGl ? Math.min(3.0, oct) : oct,
-          sparks: spk,
-          label: `Auto (${Math.round(dynamicScale * viewResMult * 100)}%)`,
+          octaves: 3.0,
+          sparks: 130,
+          label: `Auto 60Hz (${Math.round(dynamicScale * viewResMult * 100)}%)`,
           crop: viewCfg.crop,
           modeInt: viewCfg.modeInt,
         };
       }
-      // Default: 'maximum' (still respects viewResMult & adaptive dynamicScale if FPS dips on TV)
       return {
-        scale: Math.max(0.48, 1.0 * swMult * viewResMult * dynamicScale),
-        octaves: isSoftwareGl ? 3.0 : 5.0,
-        sparks: viewMode === 'logs' ? 165 : 220,
-        label: `Max · ${viewMode.toUpperCase()} (${Math.round(viewResMult * dynamicScale * 100)}%)`,
+        scale: Math.max(0.45, 0.92 * swMult * viewResMult * dynamicScale),
+        octaves: 3.0,
+        sparks: viewMode === 'logs' ? 130 : 165,
+        label: `Max 60Hz · ${viewMode.toUpperCase()}`,
         crop: viewCfg.crop,
         modeInt: viewCfg.modeInt,
       };
@@ -1080,6 +1011,7 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
         antialias: false,
         depth: false,
         stencil: false,
+        desynchronized: true,
         powerPreference: 'high-performance',
         preserveDrawingBuffer: false,
       });
@@ -1191,29 +1123,21 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
     };
 
     let disposed = false;
-    const scheduleNextFrame = () => {
-      if (disposed || isContextLost) return;
-      timerId = window.setTimeout(() => {
-        if (!disposed && !isContextLost) {
-          rafId = window.requestAnimationFrame(renderFrame);
-        }
-      }, isSoftwareGl ? 24 : 15);
-    };
 
+    // Pure 60Hz VSync requestAnimationFrame loop (zero setTimeout delay!)
     const renderFrame = (ts: number) => {
-      if (disposed) return;
-      if (isPausedRef.current || isContextLost || !gl || !compositeProg || !sparkProg) {
+      if (disposed || isContextLost) return;
+      rafId = window.requestAnimationFrame(renderFrame);
+
+      if (isPausedRef.current || !gl || !compositeProg || !sparkProg) {
         lastFrameTs = ts;
-        scheduleNextFrame();
         return;
       }
 
       if (lastFrameTs === 0) lastFrameTs = ts;
-      const dtMs = Math.min(100, Math.max(0, ts - lastFrameTs));
+      const dtMs = Math.min(50, Math.max(1, ts - lastFrameTs));
       lastFrameTs = ts;
 
-      // Wrap simTimeSec cleanly at 3600s (1 hour) so float32 precision in GLSL sin/fract/noise
-      // stays 100% sharp even after 12+ hours of continuous TV operation!
       simTimeSec = (simTimeSec + dtMs * 0.001) % 3600.0;
 
       const st = settingsRef.current;
@@ -1222,7 +1146,7 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
 
       frameCount++;
       fpsAccumMs += dtMs;
-      if (frameCount >= 40) {
+      if (frameCount >= 45) {
         currentMeasuredFps = Math.min(
           60,
           Math.max(1, Math.round((frameCount * 1000) / Math.max(1, fpsAccumMs)))
@@ -1230,22 +1154,22 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
         frameCount = 0;
         fpsAccumMs = 0;
 
-        // Automatic thermal/FPS guard on all presets so low-resource TVs never stutter
-        if (currentMeasuredFps < 38 && dynamicScale > 0.65) {
-          dynamicScale = Math.max(0.65, Math.round((dynamicScale - 0.12) * 100) / 100);
+        // Aggressive 60 FPS lock: step down internal resolution scale whenever FPS dips below 56
+        if (currentMeasuredFps < 56 && dynamicScale > 0.5) {
+          dynamicScale = Math.max(0.5, Math.round((dynamicScale - 0.1) * 100) / 100);
         } else if (
           st.fireplaceQuality === 'automatic' &&
-          currentMeasuredFps >= 56 &&
-          dynamicScale < 1.0
+          currentMeasuredFps >= 59 &&
+          dynamicScale < 0.9
         ) {
-          dynamicScale = Math.min(1.0, Math.round((dynamicScale + 0.1) * 100) / 100);
+          dynamicScale = Math.min(0.9, Math.round((dynamicScale + 0.05) * 100) / 100);
         }
 
         if (st.showDiagnostics) {
           const updatedPreset = resolvePresetParams(st.fireplaceQuality, viewMode);
           const activeSparks = Math.min(
             MAX_SPARKS,
-            Math.round(updatedPreset.sparks * Math.min(1.3, st.emberDensity))
+            Math.round(updatedPreset.sparks * Math.min(1.2, st.emberDensity))
           );
           setDiagnostics({
             fps: currentMeasuredFps,
@@ -1253,7 +1177,7 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
             height: canvas.height,
             scale: updatedPreset.scale,
             particleCount: activeSparks,
-            webglStatus: isContextLost ? 'Context Lost' : 'WebGL2 ES 3.00 Active',
+            webglStatus: isContextLost ? 'Context Lost' : 'WebGL2 ES 3.00 Active (60Hz)',
             activeQualityLabel: updatedPreset.label,
             viewModeLabel: viewMode,
           });
@@ -1325,7 +1249,7 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
       // --- PASS 2: Draw GPU Batched Rising Sparks ---
       const activeSparkCount = Math.min(
         MAX_SPARKS,
-        Math.max(0, Math.round(preset.sparks * Math.min(1.3, st.emberDensity)))
+        Math.max(0, Math.round(preset.sparks * Math.min(1.2, st.emberDensity)))
       );
 
       if (activeSparkCount > 0) {
@@ -1352,16 +1276,13 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
       }
 
       gl.bindVertexArray(null);
-      scheduleNextFrame();
     };
 
     const handleContextLost = (e: Event) => {
       e.preventDefault();
       isContextLost = true;
       if (rafId) window.cancelAnimationFrame(rafId);
-      if (timerId) window.clearTimeout(timerId);
       rafId = 0;
-      timerId = 0;
       setDiagnostics((prev) => ({
         ...prev,
         webglStatus: 'WebGL2 Context Lost (Restoring...)',
@@ -1373,7 +1294,7 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
       cleanupWebGLResources();
       if (initWebGLPipeline()) {
         lastFrameTs = 0;
-        renderFrame(performance.now());
+        rafId = window.requestAnimationFrame(renderFrame);
       }
     };
 
@@ -1390,13 +1311,12 @@ const CinematicFireplaceWebGLInner: React.FC<CinematicFireplaceWebGLProps> = ({
     window.addEventListener('resize', handleResize);
 
     if (initWebGLPipeline()) {
-      renderFrame(performance.now());
+      rafId = window.requestAnimationFrame(renderFrame);
     }
 
     return () => {
       disposed = true;
       if (rafId) window.cancelAnimationFrame(rafId);
-      if (timerId) window.clearTimeout(timerId);
       canvas.removeEventListener('webglcontextlost', handleContextLost, false);
       canvas.removeEventListener('webglcontextrestored', handleContextRestored, false);
       window.removeEventListener('resize', handleResize);

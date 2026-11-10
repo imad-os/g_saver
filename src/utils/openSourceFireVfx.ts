@@ -232,11 +232,11 @@ export function renderCanvasGameFireVfx(
 
   // 1. Game Flipbook Sub-UV Billboards
   if (style === 'game_flipbook' || style === 'roaring_bonfire' || style === 'volumetric_shader') {
-    const emitterCount = style === 'roaring_bonfire' ? 14 : style === 'game_flipbook' ? 11 : 8;
+    const emitterCount = style === 'roaring_bonfire' ? 9 : 7;
     const fps = style === 'roaring_bonfire' ? 28 : 24;
 
     for (let i = 0; i < emitterCount; i++) {
-      const normX = (i / (emitterCount - 1)) * 2 - 1; // -1..1 across log crevices
+      const normX = (i / (emitterCount - 1)) * 2 - 1;
       const bell = Math.max(0.25, Math.cos(normX * Math.PI * 0.48));
       const seed = i * 13.37 + Math.sin(i * 7.1) * 5.0;
 
@@ -256,13 +256,13 @@ export function renderCanvasGameFireVfx(
         Math.abs(normX) * 8 -
         life * (48 + bell * 46) * hScale;
 
-      const spriteW = (46 + bell * 44) * (1.0 - life * 0.28) * Math.sqrt(fPower);
-      const spriteH = (74 + bell * 72) * (0.85 + Math.sin(life * Math.PI) * 0.35) * hScale;
+      const spriteW = (52 + bell * 48) * (1.0 - life * 0.28) * Math.sqrt(fPower);
+      const spriteH = (78 + bell * 74) * (0.85 + Math.sin(life * Math.PI) * 0.35) * hScale;
 
       const alphaEnvelope = Math.sin(Math.pow(life, 0.7) * Math.PI);
       ctx.globalAlpha = Math.min(
-        0.52,
-        alphaEnvelope * (style === 'roaring_bonfire' ? 0.42 : 0.34) * Math.min(1.25, fPower) * bell
+        0.55,
+        alphaEnvelope * (style === 'roaring_bonfire' ? 0.45 : 0.38) * Math.min(1.25, fPower) * bell
       );
 
       ctx.drawImage(
@@ -279,9 +279,9 @@ export function renderCanvasGameFireVfx(
     }
   }
 
-  // 2. Articulated Curl-Vortex Bezier Flame Tongues (wispy licking tongues)
+  // 2. Articulated Curl-Vortex Bezier Flame Tongues
   if (style === 'fluid_ribbons' || style === 'roaring_bonfire' || style === 'volumetric_shader') {
-    const ribbonCount = style === 'fluid_ribbons' ? 16 : 10;
+    const ribbonCount = style === 'fluid_ribbons' ? 9 : 6;
 
     for (let i = 0; i < ribbonCount; i++) {
       const u = (i / (ribbonCount - 1)) * 2 - 1;
@@ -291,7 +291,7 @@ export function renderCanvasGameFireVfx(
       const baseX = cx + u * logSpreadX * 0.92 + Math.sin(phase * 0.5) * 5;
       const baseY = logBedY + 6 + Math.cos(i * 3.1) * 5;
       const tongueH = (52 + arch * 74 + Math.sin(phase * 0.7) * 16) * hScale * Math.min(1.25, fPower);
-      const baseW = (8 + arch * 12) * Math.min(1.2, fPower);
+      const baseW = (9 + arch * 13) * Math.min(1.2, fPower);
 
       const midSway = Math.sin(phase) * (10 + arch * 9) + windTilt * 0.45;
       const tipSway = Math.cos(phase * 1.15 - 0.8) * (18 + arch * 12) + windTilt * 0.95;
@@ -299,7 +299,7 @@ export function renderCanvasGameFireVfx(
       const tipX = baseX + tipSway;
       const tipY = baseY - tongueH;
 
-      ctx.globalAlpha = (style === 'fluid_ribbons' ? 0.32 : 0.22) * arch * Math.min(1.2, fPower);
+      ctx.globalAlpha = (style === 'fluid_ribbons' ? 0.34 : 0.24) * arch * Math.min(1.2, fPower);
       ctx.fillStyle = i % 3 === 0 ? '#fde68a' : i % 2 === 0 ? '#fb923c' : '#ea580c';
 
       ctx.beginPath();
@@ -321,21 +321,22 @@ export function renderCanvasGameFireVfx(
     }
   }
 
-  // 3. Incandescent Coal Bed Crevice Pulses (zero per-frame gradient allocation)
-  const coalClusters = 10;
+  // 3. Batched Incandescent Coal Bed Crevice Pulses (1 single fill call instead of 10!)
+  const coalClusters = 8;
+  const globalCoalPulse = 0.65 + 0.35 * Math.sin(simTime * 4.2);
+  ctx.globalAlpha = Math.min(0.38, 0.24 * coalGlow * globalCoalPulse);
+  ctx.fillStyle = '#fb923c';
+  ctx.beginPath();
   for (let c = 0; c < coalClusters; c++) {
     const u = (c / (coalClusters - 1)) * 2 - 1;
     const pulse = 0.5 + 0.5 * Math.sin(simTime * (3.4 + (c % 4) * 0.8) + c * 1.9);
     const coalX = cx + u * logSpreadX * 0.85 + Math.cos(c * 4.3) * 6;
     const coalY = cy + 8 + Math.sin(c * 2.7) * 6;
     const r = (8 + (c % 3) * 4) * coalGlow * pulse;
-
-    ctx.globalAlpha = Math.min(0.38, 0.22 * coalGlow * pulse);
-    ctx.fillStyle = c % 2 === 0 ? '#fdba74' : '#f97316';
-    ctx.beginPath();
+    ctx.moveTo(coalX + r, coalY);
     ctx.arc(coalX, coalY, r, 0, Math.PI * 2);
-    ctx.fill();
   }
+  ctx.fill();
 
   ctx.restore();
 }

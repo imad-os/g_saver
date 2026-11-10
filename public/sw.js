@@ -1,5 +1,5 @@
 /*
- * MyPC Drive Streaming Service Worker (v1.7.0)
+ * MyPC Drive Streaming Service Worker (v1.8.0)
  * Enhanced for multi-hour Smart TV video loops and nested MyPC iframes:
  *  - Broadcasts Range requests across all window/iframe clients until the client holding `streams[token]` replies
  *    (fixes the 2nd-chunk 404 'gone' bug after ~3 seconds when Chromium omits `event.clientId` on subsequent Range fetches).

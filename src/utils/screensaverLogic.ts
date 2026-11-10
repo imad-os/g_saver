@@ -154,7 +154,7 @@ export interface SceneMetadata {
   }[];
 }
 
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '1.8.0';
 
 export const SCENE_IDS: SceneId[] = [
   'hearth',

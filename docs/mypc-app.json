@@ -6,7 +6,7 @@
   "type": "app",
   "entry": "index.html",
   "icon": "icon.svg",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "config": {
     "allow_background_running": false,
     "defaultScene": "hearth",

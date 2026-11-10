@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   APP_VERSION,
   CameraViewMode,
@@ -38,20 +38,20 @@ const SCENE_PLATE_URLS: Record<SceneId, string> = {
   zen: `${zenPlateUrl}?v=${APP_VERSION}`,
 };
 
-// Zero-GC TypedArray pools
-const MAX_EMBERS = 180;
+// Zero-GC TypedArray pools tuned for 60 FPS lock on Smart TVs
+const MAX_EMBERS = 120;
 const EMBER_STRIDE = 10; // x, y, prevX, prevY, vx, vy, size, life, maxLife, phase
 
-const MAX_FLAME_RIBBONS = 45;
+const MAX_FLAME_RIBBONS = 32;
 const RIBBON_STRIDE = 8; // baseX, baseY, height, width, speed, phase, hueType, swayAmp
 
-const MAX_RAIN = 280;
+const MAX_RAIN = 180;
 const RAIN_STRIDE = 6; // x, y, vx, vy, len, alpha
 
-const MAX_DROPS = 95;
+const MAX_DROPS = 55;
 const DROP_STRIDE = 8; // x, y, vy, radiusX, radiusY, phase, trailLen, pauseTimer
 
-const MAX_RIPPLES = 24;
+const MAX_RIPPLES = 18;
 const RIPPLE_STRIDE = 5; // x, y, radius, maxRadius, alpha
 
 interface LightMaps {
@@ -60,6 +60,9 @@ interface LightMaps {
   crimsonCoal: HTMLCanvasElement;
   smokeVeil: HTMLCanvasElement;
   cyanCaustic: HTMLCanvasElement;
+  glassDroplet: HTMLCanvasElement;
+  auroraCurtain: HTMLCanvasElement;
+  oceanSunbeam: HTMLCanvasElement;
 }
 
 function makeLightMap(size: number, stops: [number, string][]): HTMLCanvasElement {
@@ -78,35 +81,109 @@ function makeLightMap(size: number, stops: [number, string][]): HTMLCanvasElemen
   return c;
 }
 
+/**
+ * Pre-bakes a refractive water droplet sprite once at init so rendering 55 glass droplets
+ * uses fast GPU sprite blits instead of 55 per-frame `ctx.ellipse() + ctx.clip()` stencil passes.
+ */
+function makeDropletSprite(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 32;
+  c.height = 44;
+  const g = c.getContext('2d');
+  if (!g) return c;
+
+  g.save();
+  g.beginPath();
+  g.ellipse(16, 22, 12, 17, 0, 0, Math.PI * 2);
+  const bodyGrad = g.createRadialGradient(12, 15, 2, 16, 22, 17);
+  bodyGrad.addColorStop(0, 'rgba(224, 242, 254, 0.52)');
+  bodyGrad.addColorStop(0.55, 'rgba(56, 189, 248, 0.18)');
+  bodyGrad.addColorStop(0.88, 'rgba(15, 23, 42, 0.55)');
+  bodyGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+  g.fillStyle = bodyGrad;
+  g.fill();
+
+  g.strokeStyle = 'rgba(15, 23, 42, 0.6)';
+  g.lineWidth = 1.4;
+  g.stroke();
+
+  // Crisp top-left specular glint
+  g.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  g.beginPath();
+  g.arc(12, 15, 3.2, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+  return c;
+}
+
+function makeAuroraCurtainSprite(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 32;
+  c.height = 140;
+  const g = c.getContext('2d');
+  if (!g) return c;
+  const grad = g.createLinearGradient(0, 0, 0, 140);
+  grad.addColorStop(0, 'rgba(16, 185, 129, 0)');
+  grad.addColorStop(0.5, 'rgba(52, 211, 153, 0.35)');
+  grad.addColorStop(1, 'rgba(168, 85, 247, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 32, 140);
+  return c;
+}
+
+function makeOceanSunbeamSprite(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 140;
+  c.height = 480;
+  const g = c.getContext('2d');
+  if (!g) return c;
+  const grad = g.createLinearGradient(0, 0, 0, 480);
+  grad.addColorStop(0, 'rgba(186, 230, 253, 0.25)');
+  grad.addColorStop(0.65, 'rgba(56, 189, 248, 0.11)');
+  grad.addColorStop(1, 'rgba(14, 116, 144, 0)');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.moveTo(54, 0);
+  g.lineTo(86, 0);
+  g.lineTo(138, 480);
+  g.lineTo(2, 480);
+  g.closePath();
+  g.fill();
+  return c;
+}
+
 function createLightMaps(): LightMaps {
   return {
-    amberExposure: makeLightMap(256, [
+    amberExposure: makeLightMap(192, [
       [0, 'rgba(255, 165, 75, 0.42)'],
       [0.35, 'rgba(234, 88, 12, 0.22)'],
       [0.7, 'rgba(154, 52, 18, 0.07)'],
       [1, 'rgba(0, 0, 0, 0)'],
     ]),
-    coreDodger: makeLightMap(128, [
+    coreDodger: makeLightMap(96, [
       [0, 'rgba(255, 250, 220, 0.75)'],
       [0.32, 'rgba(251, 191, 36, 0.48)'],
       [0.68, 'rgba(234, 88, 12, 0.18)'],
       [1, 'rgba(0, 0, 0, 0)'],
     ]),
-    crimsonCoal: makeLightMap(128, [
+    crimsonCoal: makeLightMap(96, [
       [0, 'rgba(251, 146, 60, 0.65)'],
       [0.45, 'rgba(220, 38, 38, 0.35)'],
       [1, 'rgba(0, 0, 0, 0)'],
     ]),
-    smokeVeil: makeLightMap(160, [
+    smokeVeil: makeLightMap(128, [
       [0, 'rgba(28, 25, 23, 0.22)'],
       [0.55, 'rgba(18, 16, 15, 0.10)'],
       [1, 'rgba(0, 0, 0, 0)'],
     ]),
-    cyanCaustic: makeLightMap(128, [
+    cyanCaustic: makeLightMap(64, [
       [0, 'rgba(165, 243, 252, 0.65)'],
       [0.45, 'rgba(56, 189, 248, 0.28)'],
       [1, 'rgba(0, 0, 0, 0)'],
     ]),
+    glassDroplet: makeDropletSprite(),
+    auroraCurtain: makeAuroraCurtainSprite(),
+    oceanSunbeam: makeOceanSunbeamSprite(),
   };
 }
 
@@ -124,6 +201,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
   const budgetRef = useRef<QualityBudget>(resolveQualityBudget(settings.qualityTier, hardwareTier));
   const isPausedRef = useRef<boolean>(isPaused);
   const onThunderRef = useRef(onThunderFlash);
+  const [measuredFps, setMeasuredFps] = useState<number>(60);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -141,12 +219,12 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d', { alpha: false });
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!ctx) return;
 
     const lightMaps = createLightMaps();
 
-    // Lazy-load only the active scene's plate into a 960x540 offscreen canvas to save ~50 MB of Smart TV RAM
+    // Lazy-load only the active scene's plate into a 960x540 offscreen canvas
     const plateCanvases: Partial<Record<SceneId, HTMLCanvasElement>> = {};
     const loadingScenes = new Set<SceneId>();
 
@@ -160,7 +238,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
         const off = document.createElement('canvas');
         off.width = LOGICAL_W;
         off.height = LOGICAL_H;
-        const oCtx = off.getContext('2d');
+        const oCtx = off.getContext('2d', { alpha: false });
         if (oCtx) {
           oCtx.drawImage(img, 0, 0, LOGICAL_W, LOGICAL_H);
           plateCanvases[sc] = off;
@@ -179,7 +257,6 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
     const ripples = new Float32Array(MAX_RIPPLES * RIPPLE_STRIDE);
 
     const getFireOrigin = (_scene: SceneId): { cx: number; cy: number; spreadX: number } => {
-      // Calibrated to the exact firebox grate & logs in scene_hearth_fireplace
       return { cx: 634, cy: 356, spreadX: 92 };
     };
 
@@ -197,7 +274,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       embers[idx + 3] = embers[idx + 1];
       embers[idx + 4] = (Math.random() - 0.5) * 44;
       embers[idx + 5] = -(55 + Math.random() * 115) * (0.65 + st.fireIntensity * 0.45);
-      embers[idx + 6] = 0.7 + Math.random() * 1.35; // Razor-sharp pinpoint micro-spark size
+      embers[idx + 6] = 1.1 + Math.random() * 1.3;
       embers[idx + 7] = randomLife ? Math.random() * maxLife : 0;
       embers[idx + 8] = maxLife;
       embers[idx + 9] = Math.random() * Math.PI * 2;
@@ -207,7 +284,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       const orig = getFireOrigin(scene);
       for (let i = 0; i < MAX_FLAME_RIBBONS; i++) {
         const idx = i * RIBBON_STRIDE;
-        const norm = (i / (MAX_FLAME_RIBBONS - 1)) * 2 - 1; // -1..1
+        const norm = (i / (MAX_FLAME_RIBBONS - 1)) * 2 - 1;
         const centerWeight = 1 - Math.abs(norm) * 0.75;
         ribbons[idx + 0] = orig.cx + norm * orig.spreadX * (0.75 + Math.random() * 0.25);
         ribbons[idx + 1] = orig.cy - 8 + (Math.random() - 0.5) * 18;
@@ -233,17 +310,16 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
 
     const spawnGlassDrop = (i: number, randomY = false) => {
       const idx = i * DROP_STRIDE;
-      // Confine window droplets to the glass pane area (x: 235..915 in rain scene)
       const minX = settingsRef.current.scene === 'rain' ? 238 : 40;
       const maxX = settingsRef.current.scene === 'rain' ? 912 : LOGICAL_W - 40;
       drops[idx + 0] = minX + Math.random() * (maxX - minX);
       drops[idx + 1] = randomY ? Math.random() * (LOGICAL_H - 40) : -12;
       drops[idx + 2] = 10 + Math.random() * 34;
-      const r = 2.2 + Math.random() * 4.2;
+      const r = 2.4 + Math.random() * 3.8;
       drops[idx + 3] = r;
       drops[idx + 4] = r * (1.25 + Math.random() * 0.45);
       drops[idx + 5] = Math.random() * Math.PI * 2;
-      drops[idx + 6] = 18 + Math.random() * 45;
+      drops[idx + 6] = 18 + Math.random() * 42;
       drops[idx + 7] = Math.random() * 2.2;
     };
 
@@ -264,8 +340,10 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
     for (let i = 0; i < MAX_RIPPLES; i++) spawnRipple(i, true);
 
     let lastScene: SceneId = settingsRef.current.scene;
+    let lastTransformKey = '';
     let simTime = 0;
     let lightningFlash = 0;
+    let adaptiveResScale = 0.85; // Fast 60 FPS lock scale on TV & PC
 
     const resolveCanvasCrop = (
       scene: SceneId,
@@ -276,28 +354,31 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
           return { x: 112, y: 36, w: 832, h: 468, resMult: 0.94 };
         }
         if (viewMode === 'hearth') {
-          // Shows only the brick/stone hearth design & mantel, no outer room wall or window
-          return { x: 384, y: 110, w: 512, h: 288, resMult: 0.86 };
+          return { x: 384, y: 110, w: 512, h: 288, resMult: 0.85 };
         }
         if (viewMode === 'logs') {
-          // No wall, no outer design — only inside hearth herringbone brick walls texture, grate, logs & fire
-          return { x: 492, y: 222, w: 284, h: 160, resMult: 0.78 };
+          return { x: 492, y: 222, w: 284, h: 160, resMult: 0.75 };
         }
         return { x: 0, y: 0, w: LOGICAL_W, h: LOGICAL_H, resMult: 1.0 };
       }
 
       if (viewMode === 'fit') return { x: 56, y: 32, w: 848, h: 477, resMult: 0.94 };
-      if (viewMode === 'hearth') return { x: 144, y: 81, w: 672, h: 378, resMult: 0.88 };
-      if (viewMode === 'logs') return { x: 240, y: 135, w: 480, h: 270, resMult: 0.80 };
+      if (viewMode === 'hearth') return { x: 144, y: 81, w: 672, h: 378, resMult: 0.86 };
+      if (viewMode === 'logs') return { x: 240, y: 135, w: 480, h: 270, resMult: 0.76 };
       return { x: 0, y: 0, w: LOGICAL_W, h: LOGICAL_H, resMult: 1.0 };
     };
 
-    const syncViewportAndCrop = () => {
+    const syncViewportAndCrop = (force = false) => {
       const st = settingsRef.current;
-      const crop = resolveCanvasCrop(st.scene, st.viewMode || 'wide');
-      const scale = budgetRef.current.resolutionScale * crop.resMult;
-      const targetW = Math.max(420, Math.round(LOGICAL_W * scale));
-      const targetH = Math.max(236, Math.round(LOGICAL_H * scale));
+      const viewMode = st.viewMode || 'wide';
+      const crop = resolveCanvasCrop(st.scene, viewMode);
+      const scale = Math.min(1.0, budgetRef.current.resolutionScale * crop.resMult * adaptiveResScale);
+      const targetW = Math.max(384, Math.round(LOGICAL_W * scale));
+      const targetH = Math.max(216, Math.round(LOGICAL_H * scale));
+      const key = `${st.scene}_${viewMode}_${targetW}_${targetH}`;
+      if (!force && key === lastTransformKey) return;
+      lastTransformKey = key;
+
       if (canvas.width !== targetW || canvas.height !== targetH) {
         canvas.width = targetW;
         canvas.height = targetH;
@@ -307,11 +388,11 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       ctx.setTransform(sx, 0, 0, sy, -crop.x * sx, -crop.y * sy);
     };
 
-    syncViewportAndCrop();
-    window.addEventListener('resize', syncViewportAndCrop);
+    syncViewportAndCrop(true);
+    const onResize = () => syncViewportAndCrop(true);
+    window.addEventListener('resize', onResize);
 
     const updateSimulation = (dt: number) => {
-      // Wrap simTime at 3600s (1 hour) so float trig functions stay 100% accurate over 12+ hours
       simTime = (simTime + dt) % 3600.0;
       const st = settingsRef.current;
       const budget = budgetRef.current;
@@ -329,7 +410,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       if (st.scene === 'hearth') {
         const eCount = Math.min(
           MAX_EMBERS,
-          Math.floor(budget.maxEmberParticles * Math.min(1.4, st.emberDensity))
+          Math.floor(budget.maxEmberParticles * Math.min(1.2, st.emberDensity))
         );
         for (let i = 0; i < eCount; i++) {
           const idx = i * EMBER_STRIDE;
@@ -338,7 +419,6 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
             spawnEmber(i, false);
             continue;
           }
-          // Store previous position for realistic camera-shutter motion blur streak
           embers[idx + 2] = embers[idx + 0];
           embers[idx + 3] = embers[idx + 1];
 
@@ -368,7 +448,6 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
             if (drops[idx + 7] > 0) {
               drops[idx + 7] -= dt;
             } else {
-              // Realistic stick-slip surface tension physics on glass
               const surge = 0.25 + 0.75 * Math.pow(Math.sin(simTime * 2.1 + drops[idx + 5]), 4);
               drops[idx + 1] += drops[idx + 2] * surge * dt * st.rainIntensity;
               drops[idx + 0] += Math.sin(simTime * 3.4 + drops[idx + 5]) * 5.2 * dt;
@@ -405,10 +484,6 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       }
     };
 
-    /**
-     * Real-time scanline UV displacement shader pass: warps the actual photographic flames & heat
-     * column so the photograph's fire dances, licks upward, and refracts at 60Hz.
-     */
     const renderPhotorealisticFire = (
       plate: HTMLCanvasElement,
       st: ScreensaverSettings,
@@ -419,7 +494,6 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       const padFireBoost = Math.max(-0.35, -gamepadAxesRef.current.ry * 0.45);
       const firePower = Math.max(0.25, st.fireIntensity + padFireBoost);
 
-      // Multi-frequency organic combustion flicker
       const flicker =
         (0.84 +
           0.09 * Math.sin(simTime * 9.4) +
@@ -427,50 +501,31 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
           0.04 * Math.sin(simTime * 27.3)) *
         firePower;
 
-      // 1. Real-Time UV Scanline Heat & Flame Displacement over the active fire zone
-      if (budget.enableHeatShimmer) {
-        const zoneX = isHearth ? 495 : 375;
-        const zoneW = isHearth ? 275 : 245;
-        const zoneTop = isHearth ? 175 : 205;
-        const zoneBot = isHearth ? 392 : 418;
-        const stripH = 2;
+      // 1. Coarse 16px UV heat shimmer bands (12 fast blits instead of 108 2px slices)
+      if (budget.enableHeatShimmer && st.viewMode !== 'logs') {
+        const zoneX = 495;
+        const zoneW = 275;
+        const zoneTop = 180;
+        const zoneBot = 388;
+        const stripH = 16;
 
         for (let y = zoneTop; y < zoneBot; y += stripH) {
-          const vNorm = (y - zoneTop) / (zoneBot - zoneTop); // 0 at top of plume, 1 at logs
+          const vNorm = (y - zoneTop) / (zoneBot - zoneTop);
           const envelope = Math.sin(vNorm * Math.PI);
           const waveX =
-            (Math.sin(y * 0.085 - simTime * 12.5) * 0.65 +
-              Math.cos(y * 0.042 - simTime * 7.8) * 0.35) *
-            envelope *
-            4.2 *
-            firePower *
-            st.flameHeight;
-          const waveY =
-            Math.sin(y * 0.06 - simTime * 10.2) * envelope * 2.4 * firePower * st.flameHeight;
-
-          ctx.drawImage(
-            plate,
-            zoneX,
-            Math.max(0, y + waveY),
-            zoneW,
-            stripH,
-            zoneX + waveX,
-            y,
-            zoneW,
-            stripH
-          );
+            Math.sin(y * 0.075 - simTime * 11.5) * envelope * 3.2 * firePower * st.flameHeight;
+          ctx.drawImage(plate, zoneX, y, zoneW, stripH, zoneX + waveX, y, zoneW, stripH);
         }
       }
 
-      // 2. Dynamic Room / Clearing Illumination & Incandescent Coal Bed Exposure ('screen' & 'color-dodge')
+      // 2. Dynamic Room Illumination & Incandescent Coal Bed
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
 
       const viewMode = st.viewMode || 'wide';
 
-      // Skip wide room illumination in 'logs' mode to save GPU fill-rate
       if (viewMode !== 'logs') {
-        const roomLightR = (isHearth ? 390 : 350) * (0.85 + flicker * 0.25);
+        const roomLightR = 380 * (0.85 + flicker * 0.25);
         ctx.globalAlpha = Math.min(0.85, 0.36 * flicker * st.coalGlow);
         ctx.drawImage(
           lightMaps.amberExposure,
@@ -481,26 +536,18 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
         );
       }
 
-      // Mantelpiece candle flicker in Hearth scene (skipped in 'hearth' and 'logs' modes where candle is outside crop)
       if (isHearth && (viewMode === 'wide' || viewMode === 'fit')) {
         const candleFlicker = 0.7 + 0.3 * Math.sin(simTime * 13.5 + Math.cos(simTime * 6.2));
         ctx.globalAlpha = 0.35 * candleFlicker;
         ctx.drawImage(lightMaps.coreDodger, 608 - 42, 38 - 42, 84, 84);
       }
 
-      // Deep breathing incandescent coal bed under the logs
       const coalPulse = (0.78 + 0.22 * Math.sin(simTime * 5.2)) * st.coalGlow;
       ctx.globalAlpha = Math.min(0.9, 0.55 * coalPulse);
-      const coalW = isHearth ? 145 : 95;
-      ctx.drawImage(
-        lightMaps.crimsonCoal,
-        orig.cx - coalW,
-        orig.cy - 18,
-        coalW * 2,
-        84
-      );
+      const coalW = 145;
+      ctx.drawImage(lightMaps.crimsonCoal, orig.cx - coalW, orig.cy - 18, coalW * 2, 84);
 
-      // 3. Open-Source & Game-Engine Fire Visual Effects (64-Frame Sub-UV Flipbook / Worley-Curl / Fluid Ribbons)
+      // 3. Open-Source & Game-Engine Fire Visual Effects
       renderCanvasGameFireVfx(
         ctx,
         simTime,
@@ -514,28 +561,27 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
         st.fireEffectStyle || 'game_flipbook'
       );
 
-      // 4. Multi-Octave Turbulent Light-Field Nodes (additive modulation of real photographic flames & coals)
+      // 4. Turbulent Light-Field Nodes
       ctx.globalCompositeOperation = 'lighter';
-      const nodeCount = budget.tier === 'low' ? 8 : 12;
-      const windTilt =
-        (st.windSpeed * 22 + gamepadAxesRef.current.rx * 20) * (isHearth ? 0.35 : 0.75);
-      const flameCenterY = isHearth ? 286 : 334;
+      const nodeCount = 7;
+      const windTilt = (st.windSpeed * 22 + gamepadAxesRef.current.rx * 20) * 0.35;
+      const flameCenterY = 286;
 
       for (let i = 0; i < nodeCount; i++) {
         const idx = i * RIBBON_STRIDE;
-        const normX = (i / (nodeCount - 1)) * 2 - 1; // -1..1
+        const normX = (i / (nodeCount - 1)) * 2 - 1;
         const pulse =
           0.5 +
           0.5 *
             Math.sin(simTime * ribbons[idx + 4] + ribbons[idx + 5]) *
             Math.cos(simTime * 3.7 + i);
-        const rise = ((simTime * 0.85 + i * 0.19) % 1);
+        const rise = (simTime * 0.85 + i * 0.19) % 1;
         const nx =
           orig.cx +
           normX * (orig.spreadX * 0.65) * (1 - rise * 0.45) +
           Math.sin(simTime * 6.5 + i * 1.3) * 10 +
           windTilt * rise;
-        const ny = flameCenterY + 32 - rise * (isHearth ? 85 : 95) * st.flameHeight;
+        const ny = flameCenterY + 32 - rise * 85 * st.flameHeight;
         const radius = (26 + (1 - Math.abs(normX)) * 34) * (1 - rise * 0.45) * firePower;
 
         ctx.globalAlpha = Math.min(0.45, (1 - rise) * pulse * 0.28 * firePower);
@@ -548,93 +594,75 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
         );
       }
 
-      ctx.globalCompositeOperation = 'screen';
-
-      // 4. Pinpoint Motion-Blurred Micro-Embers (Realistic 1px glowing sparks with velocity streaks)
+      // 5. Batched Motion-Blurred Micro-Embers (3 batched stroke calls instead of 180 per-ember strokes!)
       const eCount = Math.min(
         MAX_EMBERS,
-        Math.floor(budget.maxEmberParticles * Math.min(1.4, st.emberDensity))
+        Math.floor(budget.maxEmberParticles * Math.min(1.2, st.emberDensity))
       );
       ctx.lineCap = 'round';
-      for (let i = 0; i < eCount; i++) {
-        const idx = i * EMBER_STRIDE;
-        const p = embers[idx + 7] / embers[idx + 8];
-        const flickerSpark = 0.5 + 0.5 * Math.sin(simTime * 22 + embers[idx + 9]);
-        const alpha = Math.pow(1 - p, 1.2) * flickerSpark;
-        if (alpha <= 0.03) continue;
+      ctx.lineWidth = 1.6;
+      ctx.globalAlpha = 0.85;
 
-        const x = embers[idx + 0];
-        const y = embers[idx + 1];
-        const px = embers[idx + 2];
-        const py = embers[idx + 3];
-        const sz = embers[idx + 6];
+      const colorBands: [number, number, string][] = [
+        [0.0, 0.3, '#fffbeb'],
+        [0.3, 0.68, '#fb923c'],
+        [0.68, 1.0, '#dc2626'],
+      ];
 
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle =
-          p < 0.28
-            ? '#fffbeb'
-            : p < 0.65
-            ? '#fb923c'
-            : '#dc2626';
-        ctx.lineWidth = sz;
+      for (let b = 0; b < 3; b++) {
+        const minP = colorBands[b][0];
+        const maxP = colorBands[b][1];
+        ctx.strokeStyle = colorBands[b][2];
         ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(x, y);
+        for (let i = 0; i < eCount; i++) {
+          const idx = i * EMBER_STRIDE;
+          const p = embers[idx + 7] / embers[idx + 8];
+          if (p < minP || p >= maxP) continue;
+          ctx.moveTo(embers[idx + 2], embers[idx + 3]);
+          ctx.lineTo(embers[idx + 0], embers[idx + 1]);
+        }
         ctx.stroke();
       }
 
       ctx.restore();
 
-      // 5. Subtle rising translucent woodsmoke veil above campfire
-      if (st.smokeAmount > 0.05) {
+      // 6. Subtle rising woodsmoke veil
+      if (st.smokeAmount > 0.05 && viewMode !== 'logs') {
         ctx.save();
-        const smokePuffs = 6;
+        const smokePuffs = 4;
         for (let s = 0; s < smokePuffs; s++) {
-          const cycle = ((simTime * 0.22 + s / smokePuffs) % 1);
+          const cycle = (simTime * 0.22 + s / smokePuffs) % 1;
           const sx =
             orig.cx +
             Math.sin(simTime * 0.8 + s * 1.7) * (25 + cycle * 45) +
             windTilt * cycle * 1.4;
           const sy = orig.cy - 65 - cycle * 195;
           const sr = 48 + cycle * 75;
-          ctx.globalAlpha = Math.sin(cycle * Math.PI) * 0.28 * st.smokeAmount;
+          ctx.globalAlpha = Math.sin(cycle * Math.PI) * 0.26 * st.smokeAmount;
           ctx.drawImage(lightMaps.smokeVeil, sx - sr, sy - sr, sr * 2, sr * 2);
         }
         ctx.restore();
       }
     };
 
-    /**
-     * Renders true optical lens-refracting raindrops on the windowpane by sampling magnified
-     * patches of the underlying 8K night window plate, plus exterior rain sheets and lightning.
-     */
     const renderPhotorealisticRain = (
-      plate: HTMLCanvasElement,
+      _plate: HTMLCanvasElement,
       st: ScreensaverSettings,
       budget: QualityBudget
     ) => {
-      // 1. Sheet lightning illuminating the storm clouds at the top of the window
+      // 1. Sheet lightning flash
       if (lightningFlash > 0.01 && st.scene === 'rain') {
         ctx.save();
         ctx.globalCompositeOperation = 'screen';
-        const skyGrad = ctx.createLinearGradient(0, 0, 0, 280);
-        skyGrad.addColorStop(0, `rgba(224, 242, 254, ${lightningFlash * 0.55})`);
-        skyGrad.addColorStop(0.6, `rgba(147, 197, 253, ${lightningFlash * 0.22})`);
-        skyGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
-        ctx.fillStyle = skyGrad;
+        ctx.fillStyle = `rgba(186, 230, 253, ${(lightningFlash * 0.38).toFixed(3)})`;
         ctx.fillRect(225, 0, 710, 280);
         ctx.restore();
       }
 
-      // 2. High-velocity exterior rain streaks
+      // 2. Batched high-velocity exterior rain streaks (1 stroke call)
       const rCount = Math.min(MAX_RAIN, Math.floor(budget.maxRainDrops * st.rainIntensity));
       const windDx = st.windSpeed * 18;
       ctx.save();
-      if (st.scene === 'rain') {
-        ctx.beginPath();
-        ctx.rect(228, 0, 704, 520);
-        ctx.clip();
-      }
       ctx.strokeStyle = 'rgba(226, 232, 240, 0.16)';
       ctx.lineWidth = 1.0;
       ctx.beginPath();
@@ -648,139 +676,93 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       }
       ctx.stroke();
 
-      // 3. True Optical Lens-Refracting Glass Droplets
+      // 3. Hardware-Accelerated Pre-Baked Glass Droplet Sprites + Batched Rivulet Trails (zero ctx.clip!)
       if (st.glassDroplets) {
         const dCount = Math.min(MAX_DROPS, budget.maxGlassDrops);
+
+        // Single batched stroke for all wet rivulet trails
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        for (let i = 0; i < dCount; i++) {
+          const idx = i * DROP_STRIDE;
+          const dx = drops[idx + 0];
+          const dy = drops[idx + 1];
+          const ry = drops[idx + 4];
+          const trail = drops[idx + 6];
+          ctx.moveTo(dx, dy - trail);
+          ctx.lineTo(dx, dy - ry);
+        }
+        ctx.stroke();
+
+        // Fast sprite blit for each droplet
         for (let i = 0; i < dCount; i++) {
           const idx = i * DROP_STRIDE;
           const dx = drops[idx + 0];
           const dy = drops[idx + 1];
           const rx = drops[idx + 3];
           const ry = drops[idx + 4];
-          const trail = drops[idx + 6];
-
-          // Faint wet rivulet trail above the sliding droplet
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
-          ctx.lineWidth = rx * 0.55;
-          ctx.beginPath();
-          ctx.moveTo(dx, dy - trail);
-          ctx.lineTo(dx, dy - ry);
-          ctx.stroke();
-
-          // Refracted magnified background patch inside the water bead
-          ctx.save();
-          ctx.beginPath();
-          ctx.ellipse(dx, dy, rx, ry, 0, 0, Math.PI * 2);
-          ctx.clip();
-
-          const sampleX = Math.max(0, Math.min(LOGICAL_W - 24, dx - rx * 2.2));
-          const sampleY = Math.max(0, Math.min(LOGICAL_H - 24, dy - ry * 2.2));
-          ctx.drawImage(
-            plate,
-            sampleX,
-            sampleY,
-            rx * 4.4,
-            ry * 4.4,
-            dx - rx,
-            dy - ry,
-            rx * 2,
-            ry * 2
-          );
-
-          // Crisp Fresnel rim shadow + top-left specular glint
-          ctx.strokeStyle = 'rgba(15, 23, 42, 0.65)';
-          ctx.lineWidth = 1.1;
-          ctx.stroke();
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-          ctx.beginPath();
-          ctx.arc(dx - rx * 0.32, dy - ry * 0.35, Math.max(0.7, rx * 0.26), 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
+          ctx.drawImage(lightMaps.glassDroplet, dx - rx, dy - ry, rx * 2, ry * 2);
         }
       }
 
       ctx.restore();
     };
 
-    /**
-     * Real-time fjord water mirror ripple displacement & solar curtain undulation.
-     */
-    const renderPhotorealisticAurora = (
-      plate: HTMLCanvasElement,
-      st: ScreensaverSettings
-    ) => {
-      // 1. Horizontal scanline water-wave refraction across the glassy fjord (y: 282..540)
+    const renderPhotorealisticAurora = (plate: HTMLCanvasElement, st: ScreensaverSettings) => {
+      // 1. Coarse 12px water-wave refraction bands (21 fast blits instead of 129)
       const waterTop = 282;
-      for (let y = waterTop; y < LOGICAL_H; y += 2) {
+      for (let y = waterTop; y < LOGICAL_H; y += 12) {
         const depthNorm = (y - waterTop) / (LOGICAL_H - waterTop);
         const phase = y * 0.22 - simTime * 3.8;
         const dx = Math.sin(phase) * Math.cos(y * 0.07 + simTime * 1.9) * (1.2 + depthNorm * 3.2);
-        ctx.drawImage(plate, 0, y, LOGICAL_W, 2, dx, y, LOGICAL_W, 2);
+        ctx.drawImage(plate, 0, y, LOGICAL_W, 12, dx, y, LOGICAL_W, 12);
       }
 
-      // 2. Subtle undulating solar aurora luminance curtains in sky & water reflection
+      // 2. Pre-baked aurora curtain blits (zero per-frame createLinearGradient)
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
-      for (let x = 80; x < LOGICAL_W - 80; x += 28) {
+      for (let x = 80; x < LOGICAL_W - 80; x += 36) {
         const wave =
           Math.sin(x * 0.008 + simTime * 0.55) * 0.5 +
           Math.cos(x * 0.015 - simTime * 0.38) * 0.5;
         if (wave <= 0) continue;
-        const alpha = wave * 0.065 * st.fireIntensity;
+        ctx.globalAlpha = Math.min(0.45, wave * 0.22 * st.fireIntensity);
         const skyY = 85 + Math.sin(x * 0.006 + simTime * 0.4) * 35;
-
-        const g = ctx.createLinearGradient(x, skyY - 55, x, skyY + 75);
-        g.addColorStop(0, 'rgba(16, 185, 129, 0)');
-        g.addColorStop(0.5, `rgba(52, 211, 153, ${alpha.toFixed(3)})`);
-        g.addColorStop(1, 'rgba(168, 85, 247, 0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(x, skyY - 55, 30, 130);
+        ctx.drawImage(lightMaps.auroraCurtain, x, skyY - 55, 38, 140);
       }
       ctx.restore();
     };
 
-    /**
-     * Real-time underwater caustic sunbeams & current distortion for Deep Ocean Reef.
-     */
     const renderPhotorealisticOcean = (
       plate: HTMLCanvasElement,
       st: ScreensaverSettings,
       budget: QualityBudget
     ) => {
-      // 1. Subtle underwater optical wave refraction
+      // 1. Coarse 18px underwater wave refraction bands (30 blits instead of 180)
       if (budget.enableHeatShimmer) {
-        for (let y = 0; y < LOGICAL_H; y += 3) {
+        for (let y = 0; y < LOGICAL_H; y += 18) {
           const dx = Math.sin(y * 0.045 - simTime * 2.1) * 1.6;
-          ctx.drawImage(plate, 0, y, LOGICAL_W, 3, dx, y, LOGICAL_W, 3);
+          ctx.drawImage(plate, 0, y, LOGICAL_W, 18, dx, y, LOGICAL_W, 18);
         }
       }
 
-      // 2. Shimmering volumetric sunbeam rays piercing down from (x=518, y=0)
+      // 2. Pre-baked volumetric sunbeam sprites (zero per-frame gradient allocation)
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
-      for (let r = -4; r <= 4; r++) {
-        const angle = r * 0.11 + Math.sin(simTime * 0.55 + r * 1.4) * 0.025;
-        const rayAlpha = (0.045 + 0.03 * Math.sin(simTime * 1.1 + r * 2.1)) * st.fireIntensity;
+      for (let r = -3; r <= 3; r++) {
+        const angle = r * 0.12 + Math.sin(simTime * 0.55 + r * 1.4) * 0.025;
+        const rayAlpha = (0.16 + 0.1 * Math.sin(simTime * 1.1 + r * 2.1)) * st.fireIntensity;
         ctx.save();
         ctx.translate(518, -10);
         ctx.rotate(angle);
-        const grad = ctx.createLinearGradient(0, 0, 0, 480);
-        grad.addColorStop(0, `rgba(186, 230, 253, ${rayAlpha.toFixed(3)})`);
-        grad.addColorStop(0.65, `rgba(56, 189, 248, ${(rayAlpha * 0.45).toFixed(3)})`);
-        grad.addColorStop(1, 'rgba(14, 116, 144, 0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(-16, 0);
-        ctx.lineTo(16, 0);
-        ctx.lineTo(68, 480);
-        ctx.lineTo(-68, 480);
-        ctx.closePath();
-        ctx.fill();
+        ctx.globalAlpha = Math.min(0.5, rayAlpha);
+        ctx.drawImage(lightMaps.oceanSunbeam, -70, 0, 140, 480);
         ctx.restore();
       }
 
-      // 3. Tiny drifting bioluminescent marine snow & micro-bubbles
-      const count = Math.min(80, Math.floor(budget.maxEmberParticles * st.emberDensity));
+      // 3. Drifting bioluminescent marine snow
+      const count = Math.min(55, Math.floor(budget.maxEmberParticles * st.emberDensity));
       for (let i = 0; i < count; i++) {
         const idx = i * EMBER_STRIDE;
         const bx = (embers[idx + 0] * 1.4 + Math.sin(simTime * 0.8 + i) * 18 + LOGICAL_W) % LOGICAL_W;
@@ -792,44 +774,31 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       ctx.restore();
     };
 
-    /**
-     * Real-time pond water reflection ripples & stone toro lantern candle flicker for Kyoto Zen Pond.
-     */
-    const renderPhotorealisticZen = (
-      plate: HTMLCanvasElement,
-      st: ScreensaverSettings
-    ) => {
-      // 1. Pond water reflection wave refraction (y: 235..540, x: 260..900)
-      for (let y = 238; y < LOGICAL_H; y += 2) {
+    const renderPhotorealisticZen = (plate: HTMLCanvasElement, st: ScreensaverSettings) => {
+      // 1. Coarse 12px pond water reflection bands (25 blits instead of 151)
+      for (let y = 238; y < LOGICAL_H; y += 12) {
         const depth = (y - 238) / (LOGICAL_H - 238);
         const dx = Math.sin(y * 0.25 - simTime * 4.2) * (0.9 + depth * 2.4);
-        ctx.drawImage(plate, 260, y, 640, 2, 260 + dx, y, 640, 2);
+        ctx.drawImage(plate, 260, y, 640, 12, 260 + dx, y, 640, 12);
       }
 
-      // 2. Concentric water surface rings on pond
+      // 2. Concentric water surface rings (batched single stroke)
       ctx.save();
-      ctx.strokeStyle = 'rgba(226, 232, 240, 0.14)';
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.16)';
       ctx.lineWidth = 1.0;
+      ctx.beginPath();
       for (let i = 0; i < MAX_RIPPLES; i++) {
         const idx = i * RIPPLE_STRIDE;
         const p = ripples[idx + 2] / ripples[idx + 3];
-        const alpha = (1 - p) * ripples[idx + 4] * 0.32;
-        if (alpha <= 0.01) continue;
-        ctx.strokeStyle = `rgba(226, 232, 240, ${alpha.toFixed(3)})`;
-        ctx.beginPath();
-        ctx.ellipse(
-          ripples[idx + 0],
-          ripples[idx + 1],
-          ripples[idx + 2],
-          ripples[idx + 2] * 0.32,
-          0,
-          0,
-          Math.PI * 2
-        );
-        ctx.stroke();
+        if (p >= 0.95) continue;
+        const rx = ripples[idx + 2];
+        const ry = rx * 0.32;
+        ctx.moveTo(ripples[idx + 0] + rx, ripples[idx + 1]);
+        ctx.ellipse(ripples[idx + 0], ripples[idx + 1], rx, ry, 0, 0, Math.PI * 2);
       }
+      ctx.stroke();
 
-      // 3. Warm candle flicker inside the stone toro lantern (x=268, y=220) & water reflection (x=292, y=435)
+      // 3. Warm candle flicker inside stone toro lantern
       ctx.globalCompositeOperation = 'screen';
       const lanternFlicker =
         (0.75 + 0.18 * Math.sin(simTime * 11.2) + 0.07 * Math.cos(simTime * 19.4)) *
@@ -845,7 +814,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
       const st = settingsRef.current;
       const budget = budgetRef.current;
       ensurePlateLoaded(st.scene);
-      syncViewportAndCrop();
+      syncViewportAndCrop(false);
       const plate = plateCanvases[st.scene];
 
       ctx.globalCompositeOperation = 'source-over';
@@ -857,13 +826,16 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
         return;
       }
 
-      // 1. Blit Photorealistic Cinema Base Plate
+      // 1. Blit Base Plate
       ctx.drawImage(plate, 0, 0, LOGICAL_W, LOGICAL_H);
 
-      // 2. Apply Real-Time Physical Shader & Particle Passes
+      // 2. Apply Scene Passes
       if (st.scene === 'hearth') {
         renderPhotorealisticFire(plate, st, budget);
-        if (st.audioChannels.rainDownpour > 0.18 && (st.viewMode === 'wide' || st.viewMode === 'fit')) {
+        if (
+          st.audioChannels.rainDownpour > 0.18 &&
+          (st.viewMode === 'wide' || st.viewMode === 'fit')
+        ) {
           renderPhotorealisticRain(plate, st, budget);
         }
       } else if (st.scene === 'rain') {
@@ -876,7 +848,7 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
         renderPhotorealisticZen(plate, st);
       }
 
-      // 3. Apply Night Shift Color Temperature & OLED Peak Luminance Cap
+      // 3. Color Temperature & Peak Luminance
       if (st.colorTemp !== 'natural') {
         ctx.fillStyle =
           st.colorTemp === 'warm2700k'
@@ -895,51 +867,51 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
     };
 
     let rafId = 0;
-    let timerId = 0;
     let lastTs = 0;
-    let accumulator = 0;
     let disposed = false;
-    const STEP_MS = 1000 / 60;
-    const STEP_SEC = 1 / 60;
+    let frameCounter = 0;
+    let fpsAccumMs = 0;
 
-    const scheduleNext = () => {
-      if (disposed) return;
-      timerId = window.setTimeout(() => {
-        if (!disposed) {
-          rafId = requestAnimationFrame(frame);
-        }
-      }, 20);
-    };
-
+    // Pure native 60Hz VSync requestAnimationFrame loop (zero setTimeout throttling!)
     const frame = (ts: number) => {
       if (disposed) return;
+      rafId = window.requestAnimationFrame(frame);
+
       if (isPausedRef.current) {
         lastTs = ts;
-        scheduleNext();
         return;
       }
       if (!lastTs) lastTs = ts;
-      const deltaMs = Math.min(250, ts - lastTs);
+      const deltaMs = Math.min(50, Math.max(1, ts - lastTs));
       lastTs = ts;
-      accumulator += deltaMs;
 
-      while (accumulator >= STEP_MS) {
-        updateSimulation(STEP_SEC);
-        accumulator -= STEP_MS;
+      frameCounter++;
+      fpsAccumMs += deltaMs;
+      if (frameCounter >= 45) {
+        const fps = Math.min(60, Math.max(1, Math.round((frameCounter * 1000) / Math.max(1, fpsAccumMs))));
+        frameCounter = 0;
+        fpsAccumMs = 0;
+        if (fps < 55 && adaptiveResScale > 0.55) {
+          adaptiveResScale = Math.max(0.55, Math.round((adaptiveResScale - 0.1) * 100) / 100);
+          syncViewportAndCrop(true);
+        }
+        if (settingsRef.current.showDiagnostics) {
+          setMeasuredFps(fps);
+        }
       }
+
+      updateSimulation(deltaMs * 0.001);
       drawFrame();
-      scheduleNext();
     };
 
-    updateSimulation(STEP_SEC);
+    updateSimulation(1 / 60);
     drawFrame();
-    scheduleNext();
+    rafId = window.requestAnimationFrame(frame);
 
     return () => {
       disposed = true;
-      if (rafId) cancelAnimationFrame(rafId);
-      if (timerId) window.clearTimeout(timerId);
-      window.removeEventListener('resize', syncViewportAndCrop);
+      if (rafId) window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', onResize);
     };
   }, [gamepadAxesRef]);
 
@@ -948,19 +920,30 @@ export const ScreensaverCanvasInner: React.FC<ScreensaverCanvasProps> = ({
   const orbitScale = settings.burnInProtection ? 1.02 : 1.0;
 
   return (
-    <canvas
-      ref={canvasRef}
-      data-testid="screensaver-canvas"
-      data-view-mode={settings.viewMode || 'wide'}
-      onClick={onCanvasInteract}
-      style={{
-        transform:
-          orbitScale !== 1.0 || tx !== 0 || ty !== 0
-            ? `translate3d(${tx}px, ${ty}px, 0) scale(${orbitScale})`
-            : undefined,
-      }}
-      className="block w-screen h-screen cursor-pointer"
-    />
+    <div className="fixed inset-0 z-0 overflow-hidden bg-black">
+      <canvas
+        ref={canvasRef}
+        data-testid="screensaver-canvas"
+        data-view-mode={settings.viewMode || 'wide'}
+        onClick={onCanvasInteract}
+        style={{
+          transform:
+            orbitScale !== 1.0 || tx !== 0 || ty !== 0
+              ? `translate3d(${tx}px, ${ty}px, 0) scale(${orbitScale})`
+              : undefined,
+        }}
+        className="block w-screen h-screen cursor-pointer"
+      />
+      {settings.showDiagnostics && (
+        <div
+          data-testid="canvas-diagnostics"
+          className="fixed bottom-32 left-8 z-30 px-4 py-2.5 rounded-xl border border-white/15 bg-black/75 text-xs font-mono tabular-nums text-emerald-400 pointer-events-none shadow-2xl"
+        >
+          FPS: {measuredFps} · Scene: {settings.scene.toUpperCase()} · View:{' '}
+          {(settings.viewMode || 'wide').toUpperCase()}
+        </div>
+      )}
+    </div>
   );
 };
 
